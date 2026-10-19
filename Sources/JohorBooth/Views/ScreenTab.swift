@@ -55,7 +55,7 @@ struct ScreenTab: View {
                     Toggle("Mirror live feed", isOn: $app.settings.mirrorLive)
                     Toggle("Mirror overlay", isOn: $app.settings.mirrorOverlay)
                     Toggle("Show preview in this tab", isOn: $app.settings.showTabPreview)
-                    Stepper("Show new photo for \(app.settings.countdownSeconds)s", value: $app.settings.countdownSeconds, in: 1...15)
+                    SecondsField(seconds: $app.settings.countdownSeconds, label: "Show new photo for")
                 }
                 Section {
                     if screen.isOpen {

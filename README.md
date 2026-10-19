@@ -66,6 +66,9 @@ Desktop/MyEvent/               ← folder event (letak app kat sini)
 - **PREV / NEXT** (kekunci ← →): NEXT jadi kelabu bila dah kat latest, PREV jadi kelabu kat gambar pertama.
 - **1–5**: popup confirm, lepas tu terus save. Kotak nombor (1–20) + **PRINT** untuk jumlah lain.
 - **UPLOAD** (bawah PRINT): buat WebP sahaja dan hantar ke TrueNAS, tiada JPG ke hotfolder. Kalau WebP gambar tu dah pernah dibuat, dia tak buat lagi.
+- **2ND SCREEN preview** (bawah UPLOAD): tunjuk apa yang ada kat 2nd screen sekarang. Klik preview tu untuk hantar gambar semasa ke 2nd screen. Berapa saat gambar ditunjuk boleh ubah kat sini (sama dengan setting dalam tab SCREEN).
+- **PURGE PRINT QUEUE** (butang merah, paling bawah): keluar popup amaran dulu, lepas tu buang semua job dalam queue printer default macOS (`cancel -a -x`). Fail JPG dalam hotfolder tak disentuh.
+- Saiz butang & tulisan ikut saiz window, boleh kecil sampai 70%.
 - Output untuk setiap copy: JPG 1800×1200 (4R), Q95, 300 DPI, sRGB, dalam folder **HOTFOLDER** yang dipilih:
   `20261017-130559-COPY-1-47.jpg` (tarikh/masa dari EXIF date taken, `47` = nombor random).
   Reprint akan sambung nombor COPY. Fail ditulis atomic supaya printer tak ambil fail separuh siap.
@@ -83,7 +86,7 @@ Desktop/MyEvent/               ← folder event (letak app kat sini)
 - Masa startup app check: arm64, GPU/Metal, libwebp, folder boleh ditulis, overlay, permission kamera, capture card, bilangan monitor, dan TrueNAS.
 
 ### SCREEN (2nd screen)
-- Pilih capture card dan monitor. Ada X/Y/W/H untuk kawasan live feed (default 252/67/1416/946), mirror live feed, mirror overlay (2nd screen sahaja, print tak terjejas), toggle preview dalam tab, dan berapa saat countdown.
+- Pilih capture card dan monitor. Ada X/Y/W/H untuk kawasan live feed (default 252/67/1416/946), mirror live feed, mirror overlay (2nd screen sahaja, print tak terjejas), toggle preview dalam tab, dan kotak berapa saat gambar baru ditunjuk (1–60, default 5).
 - **Start 2nd screen**: fullscreen kat monitor kedua, cursor disorok, Esc untuk tutup.
 - Live feed di-mirror, duduk bawah overlay. Bila ada gambar baru masuk DIRECTORY, gambar tu ditunjuk dengan nombor merah 5→1 dalam kotak putih (bucu kanan bawah), lepas tu kembali ke live. Kalau ada gambar lain masuk masa countdown, dia tukar ke gambar terbaru dan reset countdown.
 - Kalau monitor kedua tercabut, window pindah ke skrin utama.

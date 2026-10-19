@@ -279,6 +279,10 @@ final class AppState: ObservableObject {
 
     private func settingsChanged(from old: AppSettings) {
         guard settings != old else { return }
+        if settings.countdownSeconds < 1 || settings.countdownSeconds > 60 {
+            settings.countdownSeconds = min(60, max(1, settings.countdownSeconds))
+            return
+        }
         settings.save(to: paths.settingsFile)
         if settings.cameraFolder != old.cameraFolder {
             ensureFolders()
@@ -291,6 +295,28 @@ final class AppState: ObservableObject {
         if settings.printArea != old.printArea { refreshPreview() }
         if settings.captureDeviceID != old.captureDeviceID { capture.setDevice(settings.captureDeviceID) }
         if settings.screenDisplayID != old.screenDisplayID, screen.isOpen { screen.open() }
+    }
+
+    /// Removes every job from the default macOS printer's queue (CUPS).
+    func purgePrintQueue() {
+        Log.warn("PURGE print queue requested")
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { PrinterQueue.purgeDefault() }.value
+            switch result {
+            case .success(let message):
+                Log.ok(message)
+                showAlert(title: "Print queue purged", message: message)
+            case .failure(let error):
+                Log.error("Purge failed: \(error.localizedDescription)")
+                showAlert(title: "Purge failed", message: error.localizedDescription)
+            }
+        }
+    }
+
+    func sendCurrentToScreen() {
+        guard let url = library.current else { return }
+        Log.info("2nd screen: showing \(url.lastPathComponent) from PRINT tab")
+        screen.showNewImage(url)
     }
 
     func showAlert(title: String, message: String) {

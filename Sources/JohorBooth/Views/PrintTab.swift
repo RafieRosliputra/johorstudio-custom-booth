@@ -9,6 +9,8 @@ struct PrintTab: View {
     @StateObject private var copiesText = Box("5")
     @StateObject private var confirmCopies = Box<Int?>(nil)
     @StateObject private var showArea = Box(false)
+    @StateObject private var confirmPurge = Box(false)
+    @Environment(\.uiScale) private var s
 
     /// Upload does not need the hotfolder.
     private var canUpload: Bool {
@@ -20,13 +22,20 @@ struct PrintTab: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 24) {
+        HStack(alignment: .top, spacing: 24 * s) {
             PreviewPane()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            panel
-                .frame(width: 340)
+            VStack(spacing: 10 * s) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    panel
+                }
+                purgeButton
+            }
+            .frame(width: 340 * s)
         }
-        .padding(24)
+        .padding(24 * s)
+        .onAppear { app.capture.addClient("print") }
+        .onDisappear { app.capture.removeClient("print") }
         .alert(
             "Print \(confirmCopies.value ?? 0) cop\(confirmCopies.value == 1 ? "y" : "ies")?",
             isPresented: Binding(get: { confirmCopies.value != nil }, set: { if !$0 { confirmCopies.value = nil } })
@@ -43,19 +52,19 @@ struct PrintTab: View {
     }
 
     private var panel: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 10 * s) {
             Button("DIRECTORY") { app.chooseCameraFolder() }
                 .buttonStyle(PanelButtonStyle())
             InfoLine(app.cameraFolderDisplay)
 
             Button("HOTFOLDER") { app.chooseHotfolder() }
                 .buttonStyle(PanelButtonStyle())
-                .padding(.top, 8)
+                .padding(.top, 8 * s)
             InfoLine(app.hotfolderDisplay)
 
             Button("SELECT OVERLAY") { app.chooseOverlay() }
                 .buttonStyle(PanelButtonStyle())
-                .padding(.top, 8)
+                .padding(.top, 8 * s)
             HStack(spacing: 4) {
                 InfoLine(app.overlayName)
                 Button {
@@ -75,10 +84,10 @@ struct PrintTab: View {
                 .buttonStyle(PanelButtonStyle(highlighted: library.hasNewer))
                 .keyboardShortcut("l", modifiers: [])
                 .help(library.hasNewer ? "New image waiting — press to load (L)" : "Load the newest image (L)")
-                .padding(.top, 8)
+                .padding(.top, 8 * s)
             InfoLine(library.current?.lastPathComponent ?? "—")
 
-            HStack(spacing: 10) {
+            HStack(spacing: 10 * s) {
                 Button("PREV") { library.prev() }
                     .buttonStyle(PanelButtonStyle())
                     .disabled(!library.canPrev)
@@ -90,9 +99,9 @@ struct PrintTab: View {
             }
 
             Text("PRINT, COPIES")
-                .font(.headline)
-                .padding(.top, 16)
-            HStack(spacing: 8) {
+                .font(.system(size: 15 * s, weight: .bold))
+                .padding(.top, 16 * s)
+            HStack(spacing: 8 * s) {
                 ForEach(1...5, id: \.self) { n in
                     Button("\(n)") { confirmCopies.value = n }
                         .buttonStyle(PanelButtonStyle())
@@ -101,9 +110,9 @@ struct PrintTab: View {
             }
             TextField("", text: $copiesText.value)
                 .multilineTextAlignment(.center)
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: 22 * s, weight: .bold))
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 90)
+                .frame(width: 90 * s)
                 .onChange(of: copiesText.value) { _, new in
                     var digits = String(new.filter { $0.isASCII && $0.isNumber }.prefix(2))
                     if let n = Int(digits), n > 20 { digits = "20" }
@@ -122,8 +131,41 @@ struct PrintTab: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity)
-            Spacer(minLength: 0)
+
+            screenPreview
+                .padding(.top, 8 * s)
         }
+    }
+
+    /// What the 2nd screen shows now; click it to show the current photo there.
+    private var screenPreview: some View {
+        VStack(spacing: 6 * s) {
+            Text("2ND SCREEN — click to show this photo")
+                .font(.system(size: 11 * s, weight: .semibold))
+                .foregroundStyle(.secondary)
+            SecondScreenContent(app: app, controller: app.screen)
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 8 * s))
+                .overlay(RoundedRectangle(cornerRadius: 8 * s).stroke(Color.secondary.opacity(0.4)))
+                .contentShape(Rectangle())
+                .onTapGesture { app.sendCurrentToScreen() }
+                .opacity(library.current == nil ? 0.6 : 1)
+                .help("Show the current photo on the 2nd screen")
+            SecondsField(seconds: $app.settings.countdownSeconds)
+                .font(.system(size: 12 * s))
+        }
+    }
+
+    private var purgeButton: some View {
+        Button("PURGE PRINT QUEUE") { confirmPurge.value = true }
+            .buttonStyle(PanelButtonStyle(destructive: true))
+            .help("Remove all jobs from the default printer's queue")
+            .alert("Caution", isPresented: $confirmPurge.value) {
+                Button("Purge all jobs", role: .destructive) { app.purgePrintQueue() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Purge all printer job (remove all print queue)?\n\nEvery job on the default printer will be removed and will NOT print. This cannot be undone.")
+            }
     }
 }
 

@@ -213,6 +213,9 @@ final class LiveVideoNSView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // Clicks go to the SwiftUI view underneath (the PRINT tab preview is clickable).
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
     override func layout() {
         super.layout()
         CATransaction.begin()

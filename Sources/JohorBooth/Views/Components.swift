@@ -5,9 +5,28 @@ import AppKit
 struct PanelButtonStyle: ButtonStyle {
     var highlighted = false
     var prominent = false
+    var destructive = false
 
     func makeBody(configuration: Configuration) -> some View {
-        PanelButtonBody(configuration: configuration, highlighted: highlighted, prominent: prominent)
+        PanelButtonBody(configuration: configuration, highlighted: highlighted, prominent: prominent, destructive: destructive)
+    }
+}
+
+/// UI scale from the window size: 100% at 1500×950 and up, down to 70% for small windows.
+enum UIScale {
+    static func factor(for size: CGSize) -> CGFloat {
+        min(1, max(0.7, min(size.width / 1500, size.height / 950)))
+    }
+}
+
+private struct UIScaleKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1
+}
+
+extension EnvironmentValues {
+    var uiScale: CGFloat {
+        get { self[UIScaleKey.self] }
+        set { self[UIScaleKey.self] = newValue }
     }
 }
 
@@ -15,9 +34,12 @@ private struct PanelButtonBody: View {
     let configuration: ButtonStyleConfiguration
     let highlighted: Bool
     let prominent: Bool
+    let destructive: Bool
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.uiScale) private var s
 
     var fill: Color {
+        if destructive { return .red }
         if highlighted { return .green }
         if prominent { return .accentColor }
         return Color(nsColor: .controlColor)
@@ -25,25 +47,27 @@ private struct PanelButtonBody: View {
 
     var body: some View {
         configuration.label
-            .font(.system(size: 15, weight: .bold))
+            .font(.system(size: 15 * s, weight: .bold))
             .lineLimit(1)
-            .frame(maxWidth: .infinity, minHeight: 40)
-            .foregroundStyle(highlighted || prominent ? Color.white : Color.primary)
-            .background(RoundedRectangle(cornerRadius: 10).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.35)))
+            .minimumScaleFactor(0.6)
+            .frame(maxWidth: .infinity, minHeight: 40 * s)
+            .foregroundStyle(highlighted || prominent || destructive ? Color.white : Color.primary)
+            .background(RoundedRectangle(cornerRadius: 10 * s).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: 10 * s).stroke(Color.secondary.opacity(0.35)))
             .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.35)
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10 * s))
     }
 }
 
 /// The value line under a panel button (folder, overlay name, file name).
 struct InfoLine: View {
     let text: String
+    @Environment(\.uiScale) private var s
     init(_ text: String) { self.text = text }
 
     var body: some View {
         Text(text)
-            .font(.system(size: 15, weight: .semibold, design: .rounded))
+            .font(.system(size: 15 * s, weight: .semibold, design: .rounded))
             .lineLimit(1)
             .truncationMode(.middle)
             .frame(maxWidth: .infinity)
@@ -99,4 +123,23 @@ struct StatusDot: View {
 final class Box<Value>: ObservableObject {
     @Published var value: Value
     init(_ value: Value) { self.value = value }
+}
+
+/// "Show photo for [5] sec" — the same 2nd-screen countdown setting in PRINT and SCREEN.
+struct SecondsField: View {
+    @Binding var seconds: Int
+    var label = "Show photo for"
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+            TextField("", value: $seconds, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.center)
+                .frame(width: 50)
+            Stepper("", value: $seconds, in: 1...60)
+                .labelsHidden()
+            Text("sec")
+        }
+    }
 }
