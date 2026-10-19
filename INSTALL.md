@@ -121,6 +121,7 @@ Setting event tak hilang, sebab ia disimpan dalam `settings.json` dalam folder e
 |---|---|
 | `xcrun: error: invalid active developer path` (selalunya lepas update macOS) | Jalankan `xcode-select --install` semula |
 | `swift: command not found` | Langkah 2 belum siap. Jalankan `xcode-select --install` |
+| `LIBCLANG FATAL ERROR: IO failure on output stream` / `Abort trap: 6` | Berlaku bila build atas disk luar / NAS. Script baru dah compile dalam `~/Library/Caches`. Jalankan `git pull` dan build semula |
 | Build gagal dengan `error:` | Copy baris yang ada `error:` dan hantar ke Claude |
 | App tak boleh dibuka ("damaged" / "unidentified developer") | `xattr -dr com.apple.quarantine ~/Desktop/MyEvent/johorstudio-custom-photobooth.app`, atau klik kanan app › **Open** |
 | Kamera / capture card tak keluar | Permission Camera (langkah 6). Cabut dan pasang semula capture card, kemudian tekan **Refresh devices** |
