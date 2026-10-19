@@ -232,12 +232,14 @@ struct SecondScreenContent: View {
     static let overlayRect = CGRect(x: 150, y: 0, width: 1620, height: 1080)   // overlayTop
     static let padRect = CGRect(x: 1755, y: 889, width: 165, height: 191)      // padding
 
-    /// The print photo area mapped from the 2500×1667 overlay onto overlayRect.
+    /// The print photo area mapped from the 2500×1667 overlay onto overlayRect
+    /// (flipped too when the overlay is mirrored, so the photo stays in the window).
     var photoRect: CGRect {
         let a = app.settings.printArea
         let sx = Self.overlayRect.width / Compositor.canvas.width
         let sy = Self.overlayRect.height / Compositor.canvas.height
-        return CGRect(x: Self.overlayRect.minX + a.x * sx, y: Self.overlayRect.minY + a.y * sy, width: a.w * sx, height: a.h * sy)
+        let x = app.settings.mirrorOverlay ? Compositor.canvas.width - a.x - a.w : a.x
+        return CGRect(x: Self.overlayRect.minX + x * sx, y: Self.overlayRect.minY + a.y * sy, width: a.w * sx, height: a.h * sy)
     }
 
     var body: some View {
@@ -261,6 +263,7 @@ struct SecondScreenContent: View {
                 if let overlay = app.overlayCG {
                     Image(decorative: overlay, scale: 1)
                         .resizable()
+                        .scaleEffect(x: app.settings.mirrorOverlay ? -1 : 1, y: 1)
                         .placed(Self.overlayRect, scale: s, origin: origin)
                         .allowsHitTesting(false)
                 }

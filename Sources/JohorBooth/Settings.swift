@@ -28,6 +28,7 @@ struct AppSettings: Codable, Equatable {
     var screenDisplayID: UInt32?
     var liveArea = AreaRect.liveDefault
     var mirrorLive = true
+    var mirrorOverlay = false
     var showTabPreview = true
     var countdownSeconds = 5
 
@@ -47,6 +48,7 @@ struct AppSettings: Codable, Equatable {
         screenDisplayID = try c.decodeIfPresent(UInt32.self, forKey: .screenDisplayID)
         liveArea = try c.decodeIfPresent(AreaRect.self, forKey: .liveArea) ?? d.liveArea
         mirrorLive = try c.decodeIfPresent(Bool.self, forKey: .mirrorLive) ?? d.mirrorLive
+        mirrorOverlay = try c.decodeIfPresent(Bool.self, forKey: .mirrorOverlay) ?? d.mirrorOverlay
         showTabPreview = try c.decodeIfPresent(Bool.self, forKey: .showTabPreview) ?? d.showTabPreview
         countdownSeconds = try c.decodeIfPresent(Int.self, forKey: .countdownSeconds) ?? d.countdownSeconds
     }

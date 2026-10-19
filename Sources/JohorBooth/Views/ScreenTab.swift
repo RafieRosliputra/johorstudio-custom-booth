@@ -53,6 +53,7 @@ struct ScreenTab: View {
                 Section("Live feed") {
                     AreaEditor(title: "Live area on screen (1920×1080)", area: $app.settings.liveArea, defaultArea: .liveDefault)
                     Toggle("Mirror live feed", isOn: $app.settings.mirrorLive)
+                    Toggle("Mirror overlay", isOn: $app.settings.mirrorOverlay)
                     Toggle("Show preview in this tab", isOn: $app.settings.showTabPreview)
                     Stepper("Show new photo for \(app.settings.countdownSeconds)s", value: $app.settings.countdownSeconds, in: 1...15)
                 }

@@ -83,7 +83,7 @@ Desktop/MyEvent/               ← folder event (letak app kat sini)
 - Masa startup app check: arm64, GPU/Metal, libwebp, folder boleh ditulis, overlay, permission kamera, capture card, bilangan monitor, dan TrueNAS.
 
 ### SCREEN (2nd screen)
-- Pilih capture card dan monitor. Ada X/Y/W/H untuk kawasan live feed (default 252/67/1416/946), mirror, toggle preview dalam tab, dan berapa saat countdown.
+- Pilih capture card dan monitor. Ada X/Y/W/H untuk kawasan live feed (default 252/67/1416/946), mirror live feed, mirror overlay (2nd screen sahaja, print tak terjejas), toggle preview dalam tab, dan berapa saat countdown.
 - **Start 2nd screen**: fullscreen kat monitor kedua, cursor disorok, Esc untuk tutup.
 - Live feed di-mirror, duduk bawah overlay. Bila ada gambar baru masuk DIRECTORY, gambar tu ditunjuk dengan nombor merah 5→1 dalam kotak putih (bucu kanan bawah), lepas tu kembali ke live. Kalau ada gambar lain masuk masa countdown, dia tukar ke gambar terbaru dan reset countdown.
 - Kalau monitor kedua tercabut, window pindah ke skrin utama.
