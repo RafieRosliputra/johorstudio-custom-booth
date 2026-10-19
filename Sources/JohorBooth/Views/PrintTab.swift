@@ -43,6 +43,11 @@ struct PrintTab: View {
                 .buttonStyle(PanelButtonStyle())
             InfoLine(app.cameraFolderDisplay)
 
+            Button("HOTFOLDER") { app.chooseHotfolder() }
+                .buttonStyle(PanelButtonStyle())
+                .padding(.top, 8)
+            InfoLine(app.hotfolderDisplay)
+
             Button("SELECT OVERLAY") { app.chooseOverlay() }
                 .buttonStyle(PanelButtonStyle())
                 .padding(.top, 8)

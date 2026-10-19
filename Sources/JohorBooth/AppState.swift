@@ -102,6 +102,15 @@ final class AppState: ObservableObject {
         settings.cameraFolder.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? paths.defaultCamera
     }
 
+    var hotfolderURL: URL? {
+        settings.hotfolderPath.map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    var hotfolderDisplay: String {
+        guard let url = hotfolderURL else { return "No hotfolder selected" }
+        return "\(url.deletingLastPathComponent().lastPathComponent) / \(url.lastPathComponent)"
+    }
+
     var cameraFolderDisplay: String {
         let url = cameraFolderURL
         return "\(url.deletingLastPathComponent().lastPathComponent) / \(url.lastPathComponent)"
@@ -112,12 +121,14 @@ final class AppState: ObservableObject {
     }
 
     var detailsLoaded: Bool {
-        overlayCI != nil && FileManager.default.isDirectory(cameraFolderURL)
+        overlayCI != nil
+            && FileManager.default.isDirectory(cameraFolderURL)
+            && hotfolderURL.map { FileManager.default.isDirectory($0) } == true
     }
 
     func ensureFolders() {
         let fm = FileManager.default
-        var folders: [(String, URL)] = [("hotfolder", paths.hotfolder), ("logs", paths.logs)]
+        var folders: [(String, URL)] = [("logs", paths.logs)]
         if settings.cameraFolder == nil { folders.append(("directory", paths.defaultCamera)) }
         if fm.isDirectory(cameraFolderURL) || settings.cameraFolder == nil {
             folders.append(("upload", WorkPaths.upload(in: cameraFolderURL)))
@@ -147,6 +158,28 @@ final class AppState: ObservableObject {
             library.setFolder(url)
         } else {
             settings.cameraFolder = url.path
+        }
+    }
+
+    func chooseHotfolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Use Folder"
+        panel.message = "Choose the printer hotfolder (JPG copies are saved here)"
+        panel.directoryURL = hotfolderURL ?? paths.root
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if let err = FileManager.default.probeWrite(in: url) {
+            Log.error("Hotfolder is not writable: \(url.path) — \(err)")
+            showAlert(title: "Hotfolder not writable", message: "\(url.path)\n\(err)")
+            return
+        }
+        Log.ok("Hotfolder set: \(url.path)")
+        if url.path == settings.hotfolderPath {
+            refreshPreview()
+        } else {
+            settings.hotfolderPath = url.path
         }
     }
 
@@ -254,6 +287,7 @@ final class AppState: ObservableObject {
             refreshPreview()
         }
         if settings.overlayPath != old.overlayPath { loadOverlay() }
+        if settings.hotfolderPath != old.hotfolderPath { refreshPreview() }
         if settings.printArea != old.printArea { refreshPreview() }
         if settings.captureDeviceID != old.captureDeviceID { capture.setDevice(settings.captureDeviceID) }
         if settings.screenDisplayID != old.screenDisplayID, screen.isOpen { screen.open() }

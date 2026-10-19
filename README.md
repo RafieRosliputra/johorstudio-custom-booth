@@ -37,7 +37,8 @@ Bila dah siap, Finder akan buka folder `build` yang ada **`johorstudio-custom-ph
 **Langkah 5: guna untuk event**
 1. Buat satu folder untuk event, contohnya `Desktop/MyEvent`.
 2. Copy `johorstudio-custom-photobooth.app` masuk dalam folder tu.
-3. Double-click app tu. Folder `hotfolder`, `camera` dan `logs` akan dibuat sendiri dalam folder event tu.
+3. Double-click app tu. Folder `camera` dan `logs` akan dibuat sendiri dalam folder event tu.
+4. Tekan **HOTFOLDER** dan pilih folder hotfolder printer (boleh di mana-mana).
 
 Kalau ada error masa build, copy semua tulisan dalam Terminal dan hantar kat Claude.
 
@@ -49,7 +50,6 @@ Desktop/MyEvent/               ← folder event (letak app kat sini)
   settings.json                 ← semua setting (auto)
   print-history.json            ← nombor COPY & WebP yang dah dibuat (auto)
   logs/2026-10-17.log
-  hotfolder/                    ← JPG untuk printer (auto)
   camera/                       ← DIRECTORY: gambar dari kamera (default, boleh tukar)
     upload/                     ← WebP menunggu sync ke TrueNAS
       DONE/                     ← WebP dah ada kat TrueNAS
@@ -59,12 +59,13 @@ Desktop/MyEvent/               ← folder event (letak app kat sini)
 
 ### PRINT
 - **DIRECTORY**: folder gambar kamera (JPG sahaja, folder atas sahaja).
+- **HOTFOLDER**: folder hotfolder printer, boleh di mana-mana (contohnya folder software printer). Disimpan dalam settings.
 - **SELECT OVERLAY**: PNG/WebP 2500×1667 dengan kawasan photo yang transparent. Ikon ⚙︎ sebelah nama overlay untuk ubah X/Y/W/H kawasan photo (default greenLayer 157/104/2186/1459). Nilai yang diubah kekal sampai diubah lagi.
-- Preview tulis **"details not loaded"** selagi Directory/Overlay belum lengkap.
+- Preview tulis **"details not loaded"** selagi Directory, Hotfolder atau Overlay belum lengkap.
 - **LATEST IMAGE NAME** (kekunci `L`): load gambar paling baru, ikut masa fail masuk folder. Butang jadi **hijau** bila ada gambar baru yang belum di-load. Preview tak berubah sendiri.
 - **PREV / NEXT** (kekunci ← →): NEXT jadi kelabu bila dah kat latest, PREV jadi kelabu kat gambar pertama.
 - **1–5**: popup confirm, lepas tu terus save. Kotak nombor (1–20) + **PRINT** untuk jumlah lain.
-- Output untuk setiap copy: JPG 1800×1200 (4R), Q95, 300 DPI, sRGB, dalam `hotfolder/`:
+- Output untuk setiap copy: JPG 1800×1200 (4R), Q95, 300 DPI, sRGB, dalam folder **HOTFOLDER** yang dipilih:
   `20261017-130559-COPY-1-47.jpg` (tarikh/masa dari EXIF date taken, `47` = nombor random).
   Reprint akan sambung nombor COPY. Fail ditulis atomic supaya printer tak ambil fail separuh siap.
 - Sekali untuk setiap gambar: WebP 2500×1667, quality 50, disimpan dalam `camera/upload/20261017-130559-47.webp`.

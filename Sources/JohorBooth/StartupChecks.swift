@@ -33,10 +33,16 @@ enum StartupChecks {
         if let err = FileManager.default.probeWrite(in: app.paths.root) {
             Log.error("Working folder is not writable: \(err)")
         }
-        if let err = FileManager.default.probeWrite(in: app.paths.hotfolder) {
-            Log.error("hotfolder is not writable: \(err)")
+        if let hotfolder = app.hotfolderURL {
+            if !FileManager.default.isDirectory(hotfolder) {
+                Log.error("Hotfolder not found: \(hotfolder.path) — choose it with the HOTFOLDER button")
+            } else if let err = FileManager.default.probeWrite(in: hotfolder) {
+                Log.error("Hotfolder is not writable: \(hotfolder.path) — \(err)")
+            } else {
+                Log.ok("Hotfolder ready: \(hotfolder.path)")
+            }
         } else {
-            Log.ok("hotfolder ready: \(app.paths.hotfolder.path)")
+            Log.warn("No hotfolder selected — preview shows \"details not loaded\" until you choose HOTFOLDER")
         }
 
         // Directory & overlay

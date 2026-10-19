@@ -19,6 +19,7 @@ struct AreaRect: Codable, Equatable {
 /// Saved as settings.json in the working folder.
 struct AppSettings: Codable, Equatable {
     var cameraFolder: String?
+    var hotfolderPath: String?
     var overlayPath: String?
     var printArea = AreaRect.printDefault
     var truenasPath: String?
@@ -37,6 +38,7 @@ struct AppSettings: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = AppSettings()
         cameraFolder = try c.decodeIfPresent(String.self, forKey: .cameraFolder)
+        hotfolderPath = try c.decodeIfPresent(String.self, forKey: .hotfolderPath)
         overlayPath = try c.decodeIfPresent(String.self, forKey: .overlayPath)
         printArea = try c.decodeIfPresent(AreaRect.self, forKey: .printArea) ?? d.printArea
         truenasPath = try c.decodeIfPresent(String.self, forKey: .truenasPath)

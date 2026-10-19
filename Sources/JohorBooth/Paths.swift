@@ -7,10 +7,11 @@ import Foundation
 ///       settings.json
 ///       print-history.json
 ///       logs/
-///       hotfolder/                 JPG copies for the printer
 ///       camera/                    DIRECTORY (default, can be changed)
 ///         upload/                  WebP waiting to sync to TrueNAS
 ///           DONE/                  WebP already on TrueNAS
+///
+/// The printer hotfolder is chosen with the HOTFOLDER button and can be anywhere.
 struct WorkPaths {
     let root: URL
 
@@ -26,7 +27,6 @@ struct WorkPaths {
     /// macOS runs quarantined apps from a random read-only location.
     var isTranslocated: Bool { root.path.contains("/AppTranslocation/") }
 
-    var hotfolder: URL { root.appendingPathComponent("hotfolder", isDirectory: true) }
     var defaultCamera: URL { root.appendingPathComponent("camera", isDirectory: true) }
     var logs: URL { root.appendingPathComponent("logs", isDirectory: true) }
     var settingsFile: URL { root.appendingPathComponent("settings.json") }

@@ -67,6 +67,11 @@ final class PrintService: ObservableObject {
             app.showAlert(title: "Cannot print", message: "details not loaded — select an overlay first.")
             return
         }
+        guard let hotfolder = app.hotfolderURL, FileManager.default.isDirectory(hotfolder) else {
+            Log.error("PRINT: hotfolder not found — \(app.settings.hotfolderPath ?? "not selected")")
+            app.showAlert(title: "Cannot print", message: "Hotfolder not found. Choose it with the HOTFOLDER button.")
+            return
+        }
         guard let source = app.library.current else {
             app.showAlert(title: "Cannot print", message: "No image loaded. Press LATEST IMAGE NAME first.")
             return
@@ -82,7 +87,6 @@ final class PrintService: ObservableObject {
         let base = record.base
         let suffix = record.suffix
         let webpName = record.webp == nil ? "\(base)-\(suffix).webp" : nil
-        let hotfolder = app.paths.hotfolder
         let uploadDir = WorkPaths.upload(in: app.cameraFolderURL)
         let area = app.settings.printArea.cgRect
         let compositor = app.compositor
@@ -98,7 +102,6 @@ final class PrintService: ObservableObject {
             let result = await Task.detached(priority: .userInitiated) { () -> Result<[String], Error> in
                 Result { () throws -> [String] in
                     let fm = FileManager.default
-                    try fm.ensureDirectory(hotfolder)
                     let canvas = try compositor.composite(photo: source, overlay: overlay, area: area)
                     let jpg = try ImageExport.jpegData(compositor.render(canvas, size: Compositor.printSize))
                     var written: [String] = []
