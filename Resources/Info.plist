@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>JohorBooth</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.johorstudio.booth</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>johorstudio-custom-photobooth</string>
+	<key>CFBundleDisplayName</key>
+	<string>johorstudio-custom-photobooth</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSArchitecturePriority</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.photography</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSCameraUsageDescription</key>
+	<string>johorstudio-custom-photobooth shows the live feed from the HDMI capture card on the 2nd screen.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>johorstudio-custom-photobooth reads camera images and writes print files in the event folder.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>johorstudio-custom-photobooth reads camera images and writes print files in the event folder.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>johorstudio-custom-photobooth reads camera images and writes print files in the event folder.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>johorstudio-custom-photobooth uploads photos to the TrueNAS share.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>johorstudio-custom-photobooth can read images from external drives.</string>
+</dict>
+</plist>
