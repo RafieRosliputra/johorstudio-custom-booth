@@ -124,6 +124,74 @@ final class PrintService: ObservableObject {
         }
     }
 
+    /// UPLOAD button: makes only the 2500×1667 WebP for TrueNAS — nothing goes to the hotfolder.
+    func uploadOnly() {
+        guard let app, !busy else { return }
+        guard let overlay = app.overlayCI else {
+            app.showAlert(title: "Cannot upload", message: "details not loaded — select an overlay first.")
+            return
+        }
+        guard let source = app.library.current else {
+            app.showAlert(title: "Cannot upload", message: "No image loaded. Press LATEST IMAGE NAME first.")
+            return
+        }
+        let key = source.lastPathComponent
+        let record = history[key] ?? newRecord(for: source)
+        if let existing = record.webp {
+            Log.info("UPLOAD: \(existing) was already made for \(key) — not making it again")
+            status = "\(existing) already queued/uploaded"
+            app.upload.syncNow()
+            return
+        }
+        history[key] = record
+        saveHistory()
+
+        let webpName = "\(record.base)-\(record.suffix).webp"
+        let uploadDir = WorkPaths.upload(in: app.cameraFolderURL)
+        let area = app.settings.printArea.cgRect
+        let compositor = app.compositor
+
+        busy = true
+        status = "Preparing upload of \(key)…"
+        Log.info("UPLOAD only: \(key) → \(webpName) (no print)")
+
+        Task {
+            if !(await FileReady.wait(source, timeout: 10)) {
+                Log.warn("\(key) may still be writing — processing anyway")
+            }
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<[String], Error> in
+                Result { () throws -> [String] in
+                    try FileManager.default.ensureDirectory(uploadDir)
+                    let canvas = try compositor.composite(photo: source, overlay: overlay, area: area)
+                    let webp = try ImageExport.webpData(compositor.render(canvas, size: Compositor.canvas), quality: 50)
+                    try ImageExport.writeAtomically(webp, to: uploadDir.appendingPathComponent(webpName))
+                    return [webpName]
+                }
+            }.value
+            busy = false
+            switch result {
+            case .success:
+                Log.ok("Saved \(webpName)")
+                if var saved = history[key] {
+                    saved.webp = webpName
+                    history[key] = saved
+                    saveHistory()
+                }
+                if app.upload.enabled {
+                    status = "\(webpName) sent to upload queue"
+                } else {
+                    status = "\(webpName) saved — tick UPLOAD to send to TrueNAS"
+                    Log.warn("UPLOAD is off — \(webpName) waits in the upload folder")
+                }
+                app.upload.syncNow()
+            case .failure(let error):
+                status = "Upload failed: \(error.localizedDescription)"
+                Log.error("UPLOAD failed for \(key): \(error.localizedDescription)")
+                app.showAlert(title: "Upload failed", message: "\(key)\n\(error.localizedDescription)")
+            }
+        }
+    }
+
     private func finish(_ result: Result<[String], Error>, key: String, count: Int, webpName: String?) {
         busy = false
         switch result {

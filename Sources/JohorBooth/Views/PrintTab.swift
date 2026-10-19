@@ -10,6 +10,11 @@ struct PrintTab: View {
     @StateObject private var confirmCopies = Box<Int?>(nil)
     @StateObject private var showArea = Box(false)
 
+    /// Upload does not need the hotfolder.
+    private var canUpload: Bool {
+        app.overlayCI != nil && library.current != nil && !printer.busy
+    }
+
     private var canPrint: Bool {
         app.detailsLoaded && library.current != nil && !printer.busy
     }
@@ -107,6 +112,10 @@ struct PrintTab: View {
             Button("PRINT") { confirmCopies.value = Int(copiesText.value) }
                 .buttonStyle(PanelButtonStyle(prominent: true))
                 .disabled(!canPrint || (Int(copiesText.value) ?? 0) < 1)
+            Button("UPLOAD") { printer.uploadOnly() }
+                .buttonStyle(PanelButtonStyle())
+                .disabled(!canUpload)
+                .help("Send this photo to TrueNAS only — no JPG to the hotfolder")
 
             Text(printer.busy ? "Working…" : printer.status)
                 .font(.caption)

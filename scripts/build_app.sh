@@ -23,8 +23,24 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/JohorBooth" "$APP/Contents/MacOS/JohorBooth"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-if [ -f Resources/AppIcon.icns ]; then
-  cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# App icon: Resources/AppIcon.icns, or generated from Resources/AppIcon.png (1024×1024).
+if [ ! -f Resources/AppIcon.icns ] && [ -f Resources/AppIcon.png ]; then
+  echo "==> Making AppIcon.icns from AppIcon.png"
+  ICONSET="build/AppIcon.iconset"
+  rm -rf "$ICONSET" && mkdir -p "$ICONSET"
+  for size in 16 32 128 256 512; do
+    sips -z $size $size Resources/AppIcon.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+    sips -z $((size * 2)) $((size * 2)) Resources/AppIcon.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$ICONSET" -o build/AppIcon.icns
+  ICNS="build/AppIcon.icns"
+elif [ -f Resources/AppIcon.icns ]; then
+  ICNS="Resources/AppIcon.icns"
+else
+  ICNS=""
+fi
+if [ -n "$ICNS" ]; then
+  cp "$ICNS" "$APP/Contents/Resources/AppIcon.icns"
   /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP/Contents/Info.plist" || true
 fi
 

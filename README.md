@@ -65,6 +65,7 @@ Desktop/MyEvent/               ← folder event (letak app kat sini)
 - **LATEST IMAGE NAME** (kekunci `L`): load gambar paling baru, ikut masa fail masuk folder. Butang jadi **hijau** bila ada gambar baru yang belum di-load. Preview tak berubah sendiri.
 - **PREV / NEXT** (kekunci ← →): NEXT jadi kelabu bila dah kat latest, PREV jadi kelabu kat gambar pertama.
 - **1–5**: popup confirm, lepas tu terus save. Kotak nombor (1–20) + **PRINT** untuk jumlah lain.
+- **UPLOAD** (bawah PRINT): buat WebP sahaja dan hantar ke TrueNAS, tiada JPG ke hotfolder. Kalau WebP gambar tu dah pernah dibuat, dia tak buat lagi.
 - Output untuk setiap copy: JPG 1800×1200 (4R), Q95, 300 DPI, sRGB, dalam folder **HOTFOLDER** yang dipilih:
   `20261017-130559-COPY-1-47.jpg` (tarikh/masa dari EXIF date taken, `47` = nombor random).
   Reprint akan sambung nombor COPY. Fail ditulis atomic supaya printer tak ambil fail separuh siap.
