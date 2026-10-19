@@ -2,6 +2,8 @@
 
 App photobooth untuk Mac (Apple Silicon, macOS 14+). Ditulis dalam Swift + SwiftUI, guna Core Image (GPU/Metal) untuk composite, AVFoundation untuk capture card, dan libwebp (dah di-bundle) untuk WebP.
 
+> **Mac baru / fresh install macOS 27?** Ikut [INSTALL.md](INSTALL.md): panduan penuh dari kosong (Command Line Tools, build, permission, printer, TrueNAS, capture card, update dan masalah biasa).
+
 ## Cara build (step by step)
 
 Semua ni buat sekali je. Lepas tu, setiap kali ada update, ulang **Langkah 3 & 4** sahaja.
