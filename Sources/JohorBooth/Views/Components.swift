@@ -93,3 +93,10 @@ struct StatusDot: View {
         Circle().fill(color).frame(width: 10, height: 10)
     }
 }
+
+/// View-local state without the `@State` macro, so the app builds with the
+/// Command Line Tools alone (they lack the SwiftUI macro plugin). Use with @StateObject.
+final class Box<Value>: ObservableObject {
+    @Published var value: Value
+    init(_ value: Value) { self.value = value }
+}

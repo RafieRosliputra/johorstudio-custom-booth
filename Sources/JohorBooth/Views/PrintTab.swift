@@ -6,9 +6,9 @@ struct PrintTab: View {
     @ObservedObject var library: ImageLibrary
     @ObservedObject var printer: PrintService
 
-    @State private var copiesText = "5"
-    @State private var confirmCopies: Int?
-    @State private var showArea = false
+    @StateObject private var copiesText = Box("5")
+    @StateObject private var confirmCopies = Box<Int?>(nil)
+    @StateObject private var showArea = Box(false)
 
     private var canPrint: Bool {
         app.detailsLoaded && library.current != nil && !printer.busy
@@ -23,15 +23,15 @@ struct PrintTab: View {
         }
         .padding(24)
         .alert(
-            "Print \(confirmCopies ?? 0) cop\(confirmCopies == 1 ? "y" : "ies")?",
-            isPresented: Binding(get: { confirmCopies != nil }, set: { if !$0 { confirmCopies = nil } })
+            "Print \(confirmCopies.value ?? 0) cop\(confirmCopies.value == 1 ? "y" : "ies")?",
+            isPresented: Binding(get: { confirmCopies.value != nil }, set: { if !$0 { confirmCopies.value = nil } })
         ) {
             Button("Print") {
-                if let n = confirmCopies { printer.printCopies(n) }
-                confirmCopies = nil
+                if let n = confirmCopies.value { printer.printCopies(n) }
+                confirmCopies.value = nil
             }
             .keyboardShortcut(.defaultAction)
-            Button("Cancel", role: .cancel) { confirmCopies = nil }
+            Button("Cancel", role: .cancel) { confirmCopies.value = nil }
         } message: {
             Text("\(library.current?.lastPathComponent ?? "")\nJPG 1800×1200 → hotfolder")
         }
@@ -49,13 +49,13 @@ struct PrintTab: View {
             HStack(spacing: 4) {
                 InfoLine(app.overlayName)
                 Button {
-                    showArea.toggle()
+                    showArea.value.toggle()
                 } label: {
                     Image(systemName: "slider.horizontal.3")
                 }
                 .buttonStyle(.borderless)
                 .help("Adjust the photo area (X/Y/W/H)")
-                .popover(isPresented: $showArea) {
+                .popover(isPresented: $showArea.value) {
                     AreaEditor(title: "Photo area in overlay (2500×1667)", area: $app.settings.printArea, defaultArea: .printDefault)
                         .padding()
                 }
@@ -84,24 +84,24 @@ struct PrintTab: View {
                 .padding(.top, 16)
             HStack(spacing: 8) {
                 ForEach(1...5, id: \.self) { n in
-                    Button("\(n)") { confirmCopies = n }
+                    Button("\(n)") { confirmCopies.value = n }
                         .buttonStyle(PanelButtonStyle())
                         .disabled(!canPrint)
                 }
             }
-            TextField("", text: $copiesText)
+            TextField("", text: $copiesText.value)
                 .multilineTextAlignment(.center)
                 .font(.system(size: 22, weight: .bold))
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 90)
-                .onChange(of: copiesText) { _, new in
+                .onChange(of: copiesText.value) { _, new in
                     var digits = String(new.filter { $0.isASCII && $0.isNumber }.prefix(2))
                     if let n = Int(digits), n > 20 { digits = "20" }
-                    if digits != new { copiesText = digits }
+                    if digits != new { copiesText.value = digits }
                 }
-            Button("PRINT") { confirmCopies = Int(copiesText) }
+            Button("PRINT") { confirmCopies.value = Int(copiesText.value) }
                 .buttonStyle(PanelButtonStyle(prominent: true))
-                .disabled(!canPrint || (Int(copiesText) ?? 0) < 1)
+                .disabled(!canPrint || (Int(copiesText.value) ?? 0) < 1)
 
             Text(printer.busy ? "Working…" : printer.status)
                 .font(.caption)

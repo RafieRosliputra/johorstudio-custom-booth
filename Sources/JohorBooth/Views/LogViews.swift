@@ -26,25 +26,25 @@ struct LogView: View {
     let inWindow: Bool
     @ObservedObject private var store = LogStore.shared
     @Environment(\.openWindow) private var openWindow
-    @State private var follow = true
-    @State private var filter: LogLevel?
+    @StateObject private var follow = Box(true)
+    @StateObject private var filter = Box<LogLevel?>(nil)
 
     private var visible: [LogEntry] {
-        guard let filter else { return store.entries }
-        return store.entries.filter { $0.level == filter }
+        guard let level = filter.value else { return store.entries }
+        return store.entries.filter { $0.level == level }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Picker("Show", selection: $filter) {
+                Picker("Show", selection: $filter.value) {
                     Text("All").tag(LogLevel?.none)
                     ForEach(LogLevel.allCases, id: \.self) { level in
                         Text(level.rawValue).tag(LogLevel?.some(level))
                     }
                 }
                 .frame(width: 160)
-                Toggle("Auto-scroll", isOn: $follow)
+                Toggle("Auto-scroll", isOn: $follow.value)
                 Spacer()
                 Button("Open log folder") {
                     if let folder = store.folder { NSWorkspace.shared.open(folder) }
@@ -71,7 +71,7 @@ struct LogView: View {
                 }
                 .background(Color(nsColor: .textBackgroundColor))
                 .onChange(of: store.entries.count) { _, _ in
-                    if follow, let last = visible.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                    if follow.value, let last = visible.last { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
                 .onAppear {
                     if let last = visible.last { proxy.scrollTo(last.id, anchor: .bottom) }

@@ -191,7 +191,7 @@ final class KioskWindow: NSWindow {
 
 /// Hides the mouse pointer while it is over the 2nd screen.
 final class CursorHidingHostingView<Content: View>: NSHostingView<Content> {
-    private var hidden = false
+    private var cursorHidden = false
     private var trackingArea: NSTrackingArea?
 
     override func updateTrackingAreas() {
@@ -204,9 +204,9 @@ final class CursorHidingHostingView<Content: View>: NSHostingView<Content> {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        if !hidden {
+        if !cursorHidden {
             NSCursor.hide()
-            hidden = true
+            cursorHidden = true
         }
     }
 
@@ -216,9 +216,9 @@ final class CursorHidingHostingView<Content: View>: NSHostingView<Content> {
     }
 
     func restoreCursor() {
-        if hidden {
+        if cursorHidden {
             NSCursor.unhide()
-            hidden = false
+            cursorHidden = false
         }
     }
 }

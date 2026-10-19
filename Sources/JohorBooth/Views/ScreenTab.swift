@@ -5,7 +5,7 @@ struct ScreenTab: View {
     @EnvironmentObject var app: AppState
     @ObservedObject var capture: CaptureManager
     @ObservedObject var screen: SecondScreenController
-    @State private var displays: [DisplayChoice] = []
+    @StateObject private var displays = Box<[DisplayChoice]>([])
 
     var body: some View {
         HStack(alignment: .top, spacing: 24) {
@@ -45,7 +45,7 @@ struct ScreenTab: View {
                 Section("2nd monitor") {
                     Picker("Display", selection: $app.settings.screenDisplayID) {
                         Text("Auto (second monitor)").tag(UInt32?.none)
-                        ForEach(displays) { display in
+                        ForEach(displays.value) { display in
                             Text(display.name).tag(UInt32?.some(display.id))
                         }
                     }
@@ -74,13 +74,13 @@ struct ScreenTab: View {
         .padding(24)
         .onAppear {
             capture.refreshDevices()
-            displays = DisplayChoice.all()
+            displays.value = DisplayChoice.all()
             updatePreviewClient()
         }
         .onDisappear { capture.removeClient("tab") }
         .onChange(of: app.settings.showTabPreview) { _, _ in updatePreviewClient() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
-            displays = DisplayChoice.all()
+            displays.value = DisplayChoice.all()
         }
     }
 
