@@ -88,7 +88,7 @@ final class SecondScreenController: ObservableObject {
         )
         window.isReleasedWhenClosed = false
         window.backgroundColor = .black
-        window.title = "JohorStudio Booth — 2nd screen"
+        window.title = "johorstudio-custom-photobooth — 2nd screen"
         window.onEscape = { [weak self] in self?.close() }
         let host = CursorHidingHostingView(rootView: SecondScreenContent(app: app, controller: self))
         window.contentView = host

@@ -7,7 +7,7 @@ struct JohorBoothApp: App {
     @StateObject private var app = AppState()
 
     var body: some Scene {
-        Window("JohorStudio Booth", id: "main") {
+        Window("johorstudio-custom-photobooth", id: "main") {
             MainView()
                 .environmentObject(app)
         }
@@ -17,7 +17,7 @@ struct JohorBoothApp: App {
         }
 
         // Detached log: resizable; closing it puts the log back into the LOG tab.
-        Window("JohorStudio Booth — Log", id: "log") {
+        Window("johorstudio-custom-photobooth — Log", id: "log") {
             LogView(inWindow: true)
                 .environmentObject(app)
                 .frame(minWidth: 500, minHeight: 300)

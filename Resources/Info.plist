@@ -11,9 +11,9 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>JohorStudio Booth</string>
+	<string>johorstudio-custom-photobooth</string>
 	<key>CFBundleDisplayName</key>
-	<string>JohorStudio Booth</string>
+	<string>johorstudio-custom-photobooth</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -33,16 +33,16 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSCameraUsageDescription</key>
-	<string>JohorStudio Booth shows the live feed from the HDMI capture card on the 2nd screen.</string>
+	<string>johorstudio-custom-photobooth shows the live feed from the HDMI capture card on the 2nd screen.</string>
 	<key>NSDesktopFolderUsageDescription</key>
-	<string>JohorStudio Booth reads camera images and writes print files in the event folder.</string>
+	<string>johorstudio-custom-photobooth reads camera images and writes print files in the event folder.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>JohorStudio Booth reads camera images and writes print files in the event folder.</string>
+	<string>johorstudio-custom-photobooth reads camera images and writes print files in the event folder.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>JohorStudio Booth reads camera images and writes print files in the event folder.</string>
+	<string>johorstudio-custom-photobooth reads camera images and writes print files in the event folder.</string>
 	<key>NSNetworkVolumesUsageDescription</key>
-	<string>JohorStudio Booth uploads photos to the TrueNAS share.</string>
+	<string>johorstudio-custom-photobooth uploads photos to the TrueNAS share.</string>
 	<key>NSRemovableVolumesUsageDescription</key>
-	<string>JohorStudio Booth can read images from external drives.</string>
+	<string>johorstudio-custom-photobooth can read images from external drives.</string>
 </dict>
 </plist>

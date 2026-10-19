@@ -8,7 +8,7 @@ enum StartupChecks {
     @MainActor
     static func run(_ app: AppState) {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
-        Log.info("===== JohorStudio Booth \(version) starting =====")
+        Log.info("===== johorstudio-custom-photobooth \(version) starting =====")
         Log.info("macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
 
         #if arch(arm64)
@@ -27,7 +27,7 @@ enum StartupChecks {
 
         // Working folder
         if app.paths.isTranslocated {
-            Log.error("App is running from a temporary macOS location (App Translocation). Move it into the event folder and run: xattr -dr com.apple.quarantine \"JohorStudio Booth.app\"")
+            Log.error("App is running from a temporary macOS location (App Translocation). Move it into the event folder and run: xattr -dr com.apple.quarantine \"johorstudio-custom-photobooth.app\"")
         }
         Log.info("Working folder: \(app.paths.root.path)")
         if let err = FileManager.default.probeWrite(in: app.paths.root) {

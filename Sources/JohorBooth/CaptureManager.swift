@@ -73,13 +73,13 @@ final class CaptureManager: NSObject, ObservableObject {
                         self.configureAndRun()
                     } else {
                         self.running = false
-                        Log.error("Camera access denied — enable JohorStudio Booth in System Settings › Privacy & Security › Camera")
+                        Log.error("Camera access denied — enable johorstudio-custom-photobooth in System Settings › Privacy & Security › Camera")
                     }
                 }
             }
         default:
             running = false
-            Log.error("Camera access denied — enable JohorStudio Booth in System Settings › Privacy & Security › Camera")
+            Log.error("Camera access denied — enable johorstudio-custom-photobooth in System Settings › Privacy & Security › Camera")
         }
     }
 

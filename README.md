@@ -1,28 +1,51 @@
-# JohorStudio.com Custom BOOTH
+# johorstudio-custom-photobooth
 
 App photobooth untuk Mac (Apple Silicon, macOS 14+). Ditulis dalam Swift + SwiftUI, guna Core Image (GPU/Metal) untuk composite, AVFoundation untuk capture card, dan libwebp (dah di-bundle) untuk WebP.
 
-## Build
+## Cara build (step by step)
 
-Perlu **Xcode** (atau Command Line Tools: `xcode-select --install`).
+Semua ni buat sekali je. Lepas tu, setiap kali ada update, ulang **Langkah 3 & 4** sahaja.
 
+**Langkah 1: buka Terminal**
+Tekan `⌘ + Space`, taip `Terminal`, tekan Enter.
+
+**Langkah 2: pasang alat Apple untuk compile (sekali je)**
+Dalam Terminal, taip arahan ni dan tekan Enter:
 ```bash
-git clone https://github.com/RafieRosliputra/johorstudio-custom-booth.git
-cd johorstudio-custom-booth
-./scripts/build_app.sh ~/Desktop/"20261017 ptp"
+xcode-select --install
 ```
+Akan keluar satu popup. Tekan **Install** dan tunggu sampai siap (5–15 minit).
+Kalau keluar mesej *"already installed"*, maksudnya dah ada, terus ke langkah seterusnya.
 
-Script ni akan buat `build/JohorStudio Booth.app` dan copy terus ke folder event yang kau bagi.
-Kali pertama build dia akan download libwebp (Swift Package), jadi kena ada internet.
+**Langkah 3: download kod**
+```bash
+cd ~/Desktop
+git clone https://github.com/RafieRosliputra/johorstudio-custom-booth.git
+```
+Ni akan buat folder `johorstudio-custom-booth` kat Desktop.
+(Kalau folder tu dah ada dari sebelum ni, untuk ambil update: `cd ~/Desktop/johorstudio-custom-booth && git pull`)
 
-Nak buka dalam Xcode: `open Package.swift`, kemudian tekan Run.
-Kalau run dari Xcode, working folder = folder semasa. Untuk event, guna `.app` yang dah dibuild.
+**Langkah 4: build**
+```bash
+cd ~/Desktop/johorstudio-custom-booth
+./scripts/build_app.sh
+```
+Atau dalam Finder, double-click fail **`build.command`** dalam folder tu.
+Kali pertama ambil masa beberapa minit, sebab dia download libwebp (perlu internet).
+Bila dah siap, Finder akan buka folder `build` yang ada **`johorstudio-custom-photobooth.app`**.
+
+**Langkah 5: guna untuk event**
+1. Buat satu folder untuk event, contohnya `Desktop/MyEvent`.
+2. Copy `johorstudio-custom-photobooth.app` masuk dalam folder tu.
+3. Double-click app tu. Folder `hotfolder`, `camera` dan `logs` akan dibuat sendiri dalam folder event tu.
+
+Kalau ada error masa build, copy semua tulisan dalam Terminal dan hantar kat Claude.
 
 ## Struktur folder event
 
 ```
-Desktop/20261017 ptp/          ← working folder (letak app kat sini)
-  JohorStudio Booth.app
+Desktop/MyEvent/               ← folder event (letak app kat sini)
+  johorstudio-custom-photobooth.app
   settings.json                 ← semua setting (auto)
   print-history.json            ← nombor COPY & WebP yang dah dibuat (auto)
   logs/2026-10-17.log
@@ -66,4 +89,4 @@ Desktop/20261017 ptp/          ← working folder (letak app kat sini)
 ## Nota
 - App tak di-sandbox (bukan App Store), supaya boleh baca/tulis folder event dan share TrueNAS.
 - Mac takkan tidur selama app dibuka.
-- Kalau app di-copy dari komputer lain dan tak jalan: `xattr -dr com.apple.quarantine "JohorStudio Booth.app"`.
+- Kalau app di-copy dari komputer lain dan tak jalan: `xattr -dr com.apple.quarantine "johorstudio-custom-photobooth.app"`.

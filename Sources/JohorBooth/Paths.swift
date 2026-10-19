@@ -2,8 +2,8 @@ import Foundation
 
 /// Folder layout around the app:
 ///
-///     <working folder>/            e.g. Desktop/20261017 ptp/
-///       JohorStudio Booth.app
+///     <working folder>/            e.g. Desktop/<event>/
+///       johorstudio-custom-photobooth.app
 ///       settings.json
 ///       print-history.json
 ///       logs/
