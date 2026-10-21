@@ -13,61 +13,73 @@ struct Filmstrip: View {
     @StateObject private var state = StripState()
     @Environment(\.uiScale) private var s
 
-    private var cellHeight: CGFloat { 74 * s }
-    private var cellWidth: CGFloat { 108 * s }
+    private var cellHeight: CGFloat { 118 * s }
+    private var cellWidth: CGFloat { 177 * s }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 6 * s) {
-                    ForEach(library.files, id: \.self) { url in
-                        ThumbCell(
-                            url: url,
-                            isCurrent: url == library.current,
-                            width: cellWidth,
-                            height: cellHeight,
-                            thumbs: thumbs
-                        )
-                        .id(url)
-                        .onTapGesture { library.select(url) }
-                        .onHover { inside in
-                            if inside {
-                                state.hovered = url.path
-                            } else if state.hovered == url.path {
-                                state.hovered = nil
+        HStack(spacing: 0) {
+            chevron("chevron.left", enabled: library.canPrev) { library.prev() }
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 6 * s) {
+                        ForEach(library.files, id: \.self) { url in
+                            ThumbCell(
+                                url: url,
+                                isCurrent: url == library.current,
+                                width: cellWidth,
+                                height: cellHeight,
+                                thumbs: thumbs
+                            )
+                            .id(url)
+                            .onTapGesture { library.select(url) }
+                            .onHover { inside in
+                                if inside {
+                                    state.hovered = url.path
+                                } else if state.hovered == url.path {
+                                    state.hovered = nil
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, 6 * s)
+                    .padding(.vertical, 6 * s)
                 }
-                .padding(.horizontal, 6 * s)
-                .padding(.vertical, 5 * s)
-            }
-            .onContinuousHover { phase in
-                if case .ended = phase { state.hovered = nil }
-            }
-            .onChange(of: library.current) { _, new in
-                guard let new else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    proxy.scrollTo(new, anchor: .center)
+                .onContinuousHover { phase in
+                    if case .ended = phase { state.hovered = nil }
+                }
+                .onChange(of: library.current) { _, new in
+                    guard let new else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(new, anchor: .center)
+                    }
+                }
+                .onChange(of: library.files.count) { _, _ in
+                    if let current = library.current {
+                        proxy.scrollTo(current, anchor: .center)
+                    }
                 }
             }
-            .onChange(of: library.files.count) { _, _ in
-                if let current = library.current {
-                    proxy.scrollTo(current, anchor: .center)
-                }
-            }
+            chevron("chevron.right", enabled: library.canNext) { library.next() }
         }
-        .frame(height: cellHeight + 10 * s)
-        .background(
-            RoundedRectangle(cornerRadius: 10 * s)
-                .fill(Color(nsColor: .underPageBackgroundColor).opacity(0.6))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10 * s)
-                .stroke(Color.secondary.opacity(0.25))
-        )
+        .frame(height: cellHeight + 12 * s)
         .onAppear { installKeyMonitor() }
         .onDisappear { removeKeyMonitor() }
+    }
+
+    /// Big white ‹ › at each end — step through the livefolder, like the mockup.
+    private func chevron(_ name: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name)
+                .font(.system(size: 26 * s, weight: .bold))
+                .foregroundStyle(enabled ? Color.white : Color.white.opacity(0.25))
+                .frame(width: 40 * s)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .background(Color.black.opacity(0.45))
+        .help(name == "chevron.left" ? "Previous photo" : "Next photo")
     }
 
     // MARK: - Space → Quick Look
