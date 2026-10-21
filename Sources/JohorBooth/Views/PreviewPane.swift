@@ -9,6 +9,7 @@ import SwiftUI
 struct PreviewPane: View {
     @EnvironmentObject var app: AppState
     @StateObject private var state = PreviewState()
+    @StateObject private var commitPulse = Box(false)
     @Environment(\.uiScale) private var s
 
     private var canvas: CGSize { Compositor.canvas }
@@ -39,6 +40,12 @@ struct PreviewPane: View {
                 }
 
                 chrome
+
+                if app.hasSpecific {
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color.red, lineWidth: 3 * s)
+                        .allowsHitTesting(false)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .contentShape(Rectangle())
@@ -113,21 +120,13 @@ struct PreviewPane: View {
     // MARK: - Chrome
 
     private var chrome: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 10 * s) {
-                Spacer()
-                VStack(alignment: .trailing, spacing: 6 * s) {
-                    zoomBadge
-                    if app.adjustmentsDirty { dirtyBadge }
-                }
-                globalColumn
-                Color.clear.frame(width: 12 * s)
-                perPhotoColumn
-                frameButton
-            }
+        HStack(alignment: .top) {
+            globalColumn
             Spacer()
+            perPhotoColumn
         }
         .padding(12 * s)
+        .onChange(of: app.hasPendingCommit) { _, on in commitPulse.value = on }
     }
 
     private var zoomBadge: some View {
@@ -142,24 +141,22 @@ struct PreviewPane: View {
             .help("Photo size relative to the overlay's photo area — double-click to reset to 100%")
     }
 
-    /// "! old value" when the current effective gamma/rotation differ from what was processed.
-    private var dirtyBadge: some View {
-        let parts: [String] = [
-            abs(app.effectiveGamma - app.appliedGamma) > 0.0005 ? "γ\(Self.num(app.appliedGamma))" : nil,
-            abs(app.effectiveRotation - app.appliedRotation) > 0.0005 ? "r=\(Self.num(app.appliedRotation))°" : nil,
-        ].compactMap { $0 }
-        return Text("! " + parts.joined(separator: " · "))
-            .font(.system(size: 11 * s, weight: .bold, design: .rounded))
-            .monospacedDigit()
-            .foregroundStyle(.white)
-            .padding(.horizontal, 7 * s)
-            .padding(.vertical, 3 * s)
-            .background(Capsule().fill(Color.orange))
-            .help("Processed image uses the old values — will re-process")
-    }
-
     private var globalColumn: some View {
-        VStack(spacing: 8 * s) {
+        VStack(alignment: .leading, spacing: 8 * s) {
+            Text("Global setting")
+                .font(.system(size: 11 * s, weight: .semibold))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8 * s) {
+                zoomBadge
+                iconButton("arrow.up.and.down.and.arrow.left.and.right", help: "Photo frame — set X / Y / W / H") {
+                    state.showFrame.toggle()
+                }
+                .popover(isPresented: $state.showFrame) {
+                    PhotoFrameEditor()
+                        .environmentObject(app)
+                        .padding()
+                }
+            }
             iconButton("sun.max", help: "Brightness gamma") { state.showGamma.toggle() }
                 .popover(isPresented: $state.showGamma) {
                     NumberPopup(icon: "sun.max", suffix: "", initialValue: app.gamma, onApply: { app.setGamma($0) }, isPresented: $state.showGamma)
@@ -174,24 +171,49 @@ struct PreviewPane: View {
                 }
             iconButton("rotate.left", help: "Rotate left 0.1°") { app.rotate(by: -0.1) }
             iconButton("rotate.right", help: "Rotate right 0.1°") { app.rotate(by: 0.1) }
-            iconButton("arrow.clockwise", help: "Regenerate photo") { app.regeneratePhoto() }
         }
     }
 
     private var perPhotoColumn: some View {
-        VStack(spacing: 8 * s) {
-            iconButton("scope", help: "Apply specific settings to this photo", tint: app.hasSpecific ? .red : .secondary) {
-                app.applyCurrentAsSpecific()
+        VStack(alignment: .trailing, spacing: 8 * s) {
+            Text("This photo setting")
+                .font(.system(size: 11 * s, weight: .semibold))
+                .foregroundStyle(.secondary)
+            commitButton
+            iconButton("pencil", help: "Edit this photo") {
+                app.beginEdit()
+                state.showPhotoEdit = true
             }
-            iconButton("pencil", help: "Edit this photo") { state.showPhotoEdit = true }
-                .popover(isPresented: $state.showPhotoEdit) {
-                    PhotoEditDialog(isPresented: $state.showPhotoEdit)
-                        .environmentObject(app)
-                }
+            .popover(isPresented: $state.showPhotoEdit) {
+                PhotoEditDialog(isPresented: $state.showPhotoEdit)
+                    .environmentObject(app)
+            }
             iconButton("arrow.uturn.backward", help: "Reset this photo", enabled: app.hasSpecific) {
                 app.resetPhotoSettings()
             }
         }
+    }
+
+    private var commitButton: some View {
+        let color: Color = app.hasSpecific ? .red : Color.secondary.opacity(0.4)
+        return Button {
+            app.commitWebp()
+        } label: {
+            Image(systemName: "checkmark.circle")
+                .font(.system(size: 18 * s, weight: .bold))
+                .foregroundStyle(color)
+                .frame(width: 40 * s, height: 40 * s)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9 * s))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9 * s)
+                        .stroke(color.opacity(0.6), lineWidth: app.hasPendingCommit ? 2 : 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!app.hasSpecific)
+        .opacity(app.hasPendingCommit ? (commitPulse.value ? 0.4 : 1) : 1)
+        .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: commitPulse.value)
+        .help(app.hasPendingCommit ? "Commit changes (update WebP)" : (app.hasSpecific ? "Committed" : "Follows global"))
     }
 
     private func iconButton(_ name: String, help: String, tint: Color? = nil, enabled: Bool = true, action: @escaping () -> Void) -> some View {
@@ -206,36 +228,6 @@ struct PreviewPane: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .help(help)
-    }
-
-    private static func num(_ v: Double) -> String {
-        var out = String(format: "%.2f", v)
-        while out.contains("."), out.hasSuffix("0") { out.removeLast() }
-        if out.hasSuffix(".") { out.removeLast() }
-        return out
-    }
-
-    private var frameButton: some View {
-        Button {
-            state.showFrame.toggle()
-        } label: {
-            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                .font(.system(size: 16 * s, weight: .bold))
-                .foregroundStyle(.primary)
-                .frame(width: 40 * s, height: 40 * s)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9 * s))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9 * s)
-                        .stroke(Color.secondary.opacity(0.35))
-                )
-        }
-        .buttonStyle(.plain)
-        .help("Photo frame — set X / Y / W / H by hand")
-        .popover(isPresented: $state.showFrame) {
-            PhotoFrameEditor()
-                .environmentObject(app)
-                .padding()
-        }
     }
 
     // MARK: - Geometry
@@ -421,12 +413,11 @@ struct PhotoFrameEditor: View {
 }
 
 /// Vertical per-photo editor: gamma / rotation / pan / zoom with `- Label +`
-/// buttons and a text field each. OK commits (or Return), Cancel discards.
+/// buttons and a text field each. Edits the preview-only draft; OK commits.
 struct PhotoEditDialog: View {
     @EnvironmentObject var app: AppState
     @Environment(\.uiScale) private var s
     @Binding var isPresented: Bool
-    @StateObject private var working = Box(PhotoAdjustment(gamma: 1, rotation: 0, x: 0, y: 0, w: 0, h: 0))
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10 * s) {
@@ -445,7 +436,7 @@ struct PhotoEditDialog: View {
                 .foregroundStyle(.secondary)
 
             HStack {
-                Button("Cancel") { isPresented = false }
+                Button("Cancel") { cancel() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("OK") { commit() }
@@ -454,24 +445,24 @@ struct PhotoEditDialog: View {
         }
         .padding(14 * s)
         .frame(width: 240 * s)
-        .onAppear { load() }
+        .onDisappear { app.draft = nil }
     }
 
     private func binding(_ kp: WritableKeyPath<PhotoAdjustment, Double>) -> Binding<Double> {
         Binding(
-            get: { working.value[keyPath: kp] },
-            set: { working.value[keyPath: kp] = $0 }
+            get: { app.draft?[keyPath: kp] ?? 0 },
+            set: { v in app.updateDraft { $0[keyPath: kp] = v } }
         )
     }
 
-    private func load() {
-        let base = app.currentSpecific
-            ?? PhotoAdjustment.snapshot(gamma: app.effectiveGamma, rotation: app.effectiveRotation, frame: app.effectiveFrame)
-        working.value = base
+    private func commit() {
+        if let d = app.draft { app.commitSpecific(d) }
+        app.draft = nil
+        isPresented = false
     }
 
-    private func commit() {
-        app.commitSpecific(working.value)
+    private func cancel() {
+        app.draft = nil
         isPresented = false
     }
 }

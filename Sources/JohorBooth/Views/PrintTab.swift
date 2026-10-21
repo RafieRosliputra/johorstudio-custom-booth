@@ -10,6 +10,7 @@ struct PrintTab: View {
     @StateObject private var showArea = Box(false)
     @StateObject private var actionLog = Box("—")
     @StateObject private var pendingPrint = Box<Int?>(nil)
+    @StateObject private var commitPrint = Box<(count: Int, log: String)?>(nil)
     @StateObject private var monitors = PrintTabMonitors()
     @Environment(\.uiScale) private var s
 
@@ -24,9 +25,7 @@ struct PrintTab: View {
     /// Buttons 1–5: send straight away, no popup.
     private func quickPrint(_ n: Int) {
         guard canSend else { return }
-        printer.printCopies(n)
-        actionLog.value = "SENT TO PRINTER \(n) COPIES"
-        app.showToast("SENT TO PRINTER \(n) COPIES", large: true)
+        requestPrint(n, log: "SENT TO PRINTER \(n) COPIES")
     }
 
     /// White box + PRINT: 6–20 copies only, confirmed with OK/Cancel.
@@ -44,10 +43,23 @@ struct PrintTab: View {
     private func confirmCustomPrint() {
         guard let n = pendingPrint.value else { return }
         pendingPrint.value = nil
-        printer.printCopies(n)
         copiesText.value = ""
-        actionLog.value = "CUSTOM PRINT SENT"
-        app.showToast("CUSTOM PRINT SENT", large: true)
+        requestPrint(n, log: "CUSTOM PRINT SENT")
+    }
+
+    /// Common print path: ask to commit uncommitted per-photo changes first.
+    private func requestPrint(_ n: Int, log: String) {
+        if app.hasPendingCommit {
+            commitPrint.value = (n, log)
+        } else {
+            doPrint(n, log: log)
+        }
+    }
+
+    private func doPrint(_ n: Int, log: String) {
+        printer.printCopies(n)
+        actionLog.value = log
+        app.showToast(log, large: true)
     }
 
     private func sanitizeCopies() {
@@ -107,6 +119,28 @@ struct PrintTab: View {
             Button("Cancel", role: .cancel) { pendingPrint.value = nil }
         } message: {
             Text("\(pendingPrint.value ?? 0) copies will be sent to the printer.\nPress Space to confirm, Esc to cancel.")
+        }
+        .alert(
+            "Commit changes?",
+            isPresented: Binding(
+                get: { commitPrint.value != nil },
+                set: { if !$0 { commitPrint.value = nil } }
+            )
+        ) {
+            Button("YES") {
+                guard let p = commitPrint.value else { return }
+                commitPrint.value = nil
+                app.commitWebp()
+                doPrint(p.count, log: p.log)
+            }
+            Button("NO") {
+                guard let p = commitPrint.value else { return }
+                commitPrint.value = nil
+                app.resetPhotoSettings()
+                doPrint(p.count, log: p.log)
+            }
+        } message: {
+            Text("This photo has uncommitted changes.\n\nYES — update the WebP and print with the adjustment.\nNO — revert to global and print.")
         }
     }
 

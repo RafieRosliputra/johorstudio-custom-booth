@@ -188,8 +188,9 @@ final class PrintService: ObservableObject {
         enqueuePrepare(app.library.files)
     }
 
-    /// Re-composites the current photo's WebP with the current effective settings,
-    /// overwriting the local copy AND the copy on TrueNAS (keeps the filename).
+    /// Re-composites the current photo's WebP with the current effective settings:
+    /// the old WebP is backed up to webp/original, then the local copy AND the
+    /// copy on TrueNAS are overwritten (filename kept).
     func reprepareUpload(for url: URL) {
         guard let app, !reprocessing else { return }
         guard let overlay = app.overlayCI else { return }
@@ -197,6 +198,8 @@ final class PrintService: ObservableObject {
         var record = history[key] ?? newRecord(for: url)
         let webpName = record.webp ?? "\(record.base)-\(record.suffix).webp"
         let uploadDir = WorkPaths.upload(in: app.cameraFolderURL)
+        let doneDir = WorkPaths.done(in: app.cameraFolderURL)
+        let originalDir = app.paths.root.appendingPathComponent("webp", isDirectory: true).appendingPathComponent("original", isDirectory: true)
         let area = app.settings.printArea.cgRect
         let frame = app.effectiveFrame.rect
         let compositor = app.compositor
@@ -212,11 +215,21 @@ final class PrintService: ObservableObject {
             }
             let result = await Task.detached(priority: .utility) { () -> Result<Void, Error> in
                 Result {
-                    try FileManager.default.ensureDirectory(uploadDir)
+                    let fm = FileManager.default
+                    try fm.ensureDirectory(uploadDir)
+                    try fm.ensureDirectory(originalDir)
+                    // Back up the existing WebP before overwriting.
+                    let oldUpload = uploadDir.appendingPathComponent(webpName)
+                    let oldDone = doneDir.appendingPathComponent(webpName)
+                    if fm.fileExists(atPath: oldUpload.path) {
+                        try fm.moveItem(at: oldUpload, to: Self.backupName(for: webpName, in: originalDir))
+                    } else if fm.fileExists(atPath: oldDone.path) {
+                        try fm.moveItem(at: oldDone, to: Self.backupName(for: webpName, in: originalDir))
+                    }
                     let canvas = try compositor.composite(photo: url, overlay: overlay, area: area, frame: frame, gamma: gamma, rotation: rotation)
                     let webp = try ImageExport.webpData(compositor.render(canvas, size: Compositor.canvas), quality: 50)
                     try ImageExport.writeAtomically(webp, to: uploadDir.appendingPathComponent(webpName))
-                    if let remote, FileManager.default.isDirectory(remote) {
+                    if let remote, fm.isDirectory(remote) {
                         try ImageExport.writeAtomically(webp, to: remote.appendingPathComponent(webpName))
                     }
                 }
@@ -230,13 +243,27 @@ final class PrintService: ObservableObject {
                     saveHistory()
                 }
                 Log.ok("Regenerated \(webpName)")
-                app.markAdjustmentsApplied(gamma: gamma, rotation: rotation)
+                app.markCommitted(key)
                 app.upload.refreshCounts()
                 if app.upload.enabled { app.upload.syncNow() }
             case .failure(let error):
                 Log.error("Regenerate failed for \(key): \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Unique name inside webp/original: `name.webp`, `name-1.webp`, …
+    nonisolated static func backupName(for name: String, in dir: URL) -> URL {
+        let fm = FileManager.default
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        var candidate = dir.appendingPathComponent(name)
+        var i = 1
+        while fm.fileExists(atPath: candidate.path) {
+            candidate = dir.appendingPathComponent("\(base)-\(i).\(ext)")
+            i += 1
+        }
+        return candidate
     }
 
     private static func num(_ v: Double) -> String {
@@ -326,9 +353,6 @@ final class PrintService: ObservableObject {
                     saveHistory()
                 }
                 Log.ok("Prepared \(webpName) for TrueNAS")
-                if source == app.library.current {
-                    app.markAdjustmentsApplied(gamma: gamma, rotation: rotation)
-                }
                 refreshUnsynced()
                 app.upload.refreshCounts()
                 if app.upload.enabled { app.upload.syncNow() }
@@ -365,7 +389,6 @@ final class PrintService: ObservableObject {
                 saveHistory()
                 app?.upload.syncNow()
             }
-            app?.markAdjustmentsApplied(gamma: gamma, rotation: rotation)
             status = "Saved \(count) cop\(count == 1 ? "y" : "ies") of \(key)"
         case .failure(let error):
             status = "Print failed: \(error.localizedDescription)"

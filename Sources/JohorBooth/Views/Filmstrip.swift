@@ -37,6 +37,7 @@ struct Filmstrip: View {
                             ThumbCell(
                                 url: url,
                                 isCurrent: url == library.current,
+                                hasSpecific: app.photoAdjustments[url.lastPathComponent] != nil,
                                 width: cellWidth,
                                 height: cellHeight,
                                 tooltip: webpTooltip(for: url),
@@ -256,6 +257,7 @@ private final class StripState: ObservableObject {
 private struct ThumbCell: View {
     let url: URL
     let isCurrent: Bool
+    let hasSpecific: Bool
     let width: CGFloat
     let height: CGFloat
     let tooltip: String
@@ -286,8 +288,8 @@ private struct ThumbCell: View {
         .overlay(
             RoundedRectangle(cornerRadius: 6 * s)
                 .strokeBorder(
-                    isCurrent ? Color.accentColor : Color.white.opacity(0.12),
-                    lineWidth: isCurrent ? 2.5 : 1
+                    hasSpecific ? Color.red : (isCurrent ? Color.accentColor : Color.white.opacity(0.12)),
+                    lineWidth: hasSpecific ? 2.5 : (isCurrent ? 2.5 : 1)
                 )
         )
         .overlay(alignment: .bottom) {
@@ -304,5 +306,6 @@ private struct ThumbCell: View {
         .opacity(isCurrent ? 1 : 0.85)
         .help(tooltip)
         .onAppear { thumbs.load(url) }
+        .onChange(of: hasSpecific) { _, _ in thumbs.reload(url) }
     }
 }

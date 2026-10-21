@@ -10,6 +10,8 @@ final class ThumbnailStore: ObservableObject {
 
     /// Prefer the 2000px preview copy over the 42MP original (set by AppState).
     weak var preview: PreviewStore?
+    /// For per-photo specific adjustments (set by AppState).
+    weak var app: AppState?
 
     private let cache = NSCache<NSString, CGImage>()
     private var loading = Set<String>()
@@ -32,8 +34,12 @@ final class ThumbnailStore: ObservableObject {
         guard cache.object(forKey: key as NSString) == nil, !loading.contains(key) else { return }
         loading.insert(key)
         let source = previewSource(for: url)
+        let specific = app?.photoAdjustments[url.lastPathComponent]
         queue.async {
-            let image = ImageDecode.downsampled(source, maxPixel: ImageDecode.thumbnailPixel)
+            var image = ImageDecode.downsampled(source, maxPixel: ImageDecode.thumbnailPixel)
+            if let specific, let img = image {
+                image = ImageAdjust.render(img, gamma: specific.gamma, rotation: specific.rotation)
+            }
             Task { @MainActor in
                 self.loading.remove(key)
                 guard let image else { return }
@@ -41,6 +47,13 @@ final class ThumbnailStore: ObservableObject {
                 self.loaded.insert(key)
             }
         }
+    }
+
+    /// Re-decode a thumbnail (specific settings changed).
+    func reload(_ url: URL) {
+        cache.removeObject(forKey: url.path as NSString)
+        loaded.remove(url.path)
+        load(url)
     }
 
     /// The small preview copy when it exists, else the original.
