@@ -38,6 +38,7 @@ struct Filmstrip: View {
                                 url: url,
                                 isCurrent: url == library.current,
                                 hasSpecific: app.photoAdjustments[url.lastPathComponent] != nil,
+                                hasPending: app.pendingDrafts[url.lastPathComponent] != nil,
                                 width: cellWidth,
                                 height: cellHeight,
                                 tooltip: webpTooltip(for: url),
@@ -258,6 +259,7 @@ private struct ThumbCell: View {
     let url: URL
     let isCurrent: Bool
     let hasSpecific: Bool
+    let hasPending: Bool
     let width: CGFloat
     let height: CGFloat
     let tooltip: String
@@ -267,6 +269,12 @@ private struct ThumbCell: View {
     private var caption: String {
         let base = url.deletingPathExtension().lastPathComponent
         return base.count > 5 ? "…" + String(base.suffix(5)) : base
+    }
+
+    private var ringColor: Color {
+        if hasPending { return .yellow }
+        if hasSpecific { return .red }
+        return isCurrent ? .accentColor : .white.opacity(0.12)
     }
 
     var body: some View {
@@ -287,10 +295,7 @@ private struct ThumbCell: View {
         .clipShape(RoundedRectangle(cornerRadius: 6 * s))
         .overlay(
             RoundedRectangle(cornerRadius: 6 * s)
-                .strokeBorder(
-                    hasSpecific ? Color.red : (isCurrent ? Color.accentColor : Color.white.opacity(0.12)),
-                    lineWidth: hasSpecific ? 2.5 : (isCurrent ? 2.5 : 1)
-                )
+                .strokeBorder(ringColor, lineWidth: (hasPending || hasSpecific || isCurrent) ? 2.5 : 1)
         )
         .overlay(alignment: .bottom) {
             Text(caption)
@@ -307,5 +312,6 @@ private struct ThumbCell: View {
         .help(tooltip)
         .onAppear { thumbs.load(url) }
         .onChange(of: hasSpecific) { _, _ in thumbs.reload(url) }
+        .onChange(of: hasPending) { _, _ in thumbs.reload(url) }
     }
 }

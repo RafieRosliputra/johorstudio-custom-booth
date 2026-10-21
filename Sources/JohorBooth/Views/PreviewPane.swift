@@ -41,7 +41,11 @@ struct PreviewPane: View {
 
                 chrome
 
-                if app.hasSpecific {
+                if app.hasPending {
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color.yellow, lineWidth: 3 * s)
+                        .allowsHitTesting(false)
+                } else if app.hasSpecific {
                     RoundedRectangle(cornerRadius: 12)
                         .strokeBorder(Color.red, lineWidth: 3 * s)
                         .allowsHitTesting(false)
@@ -126,7 +130,7 @@ struct PreviewPane: View {
             perPhotoColumn
         }
         .padding(12 * s)
-        .onChange(of: app.hasPendingCommit) { _, on in commitPulse.value = on }
+        .onChange(of: app.hasPending) { _, on in commitPulse.value = on }
     }
 
     private var zoomBadge: some View {
@@ -195,9 +199,9 @@ struct PreviewPane: View {
     }
 
     private var commitButton: some View {
-        let color: Color = app.hasSpecific ? .red : Color.secondary.opacity(0.4)
+        let color: Color = app.hasSpecific ? .red : (app.hasPending ? .yellow : Color.secondary.opacity(0.4))
         return Button {
-            app.commitWebp()
+            app.commitPhoto()
         } label: {
             Image(systemName: "checkmark.circle")
                 .font(.system(size: 18 * s, weight: .bold))
@@ -206,14 +210,14 @@ struct PreviewPane: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9 * s))
                 .overlay(
                     RoundedRectangle(cornerRadius: 9 * s)
-                        .stroke(color.opacity(0.6), lineWidth: app.hasPendingCommit ? 2 : 1)
+                        .stroke(color.opacity(0.6), lineWidth: app.hasPending ? 2 : 1)
                 )
         }
         .buttonStyle(.plain)
-        .disabled(!app.hasSpecific)
-        .opacity(app.hasPendingCommit ? (commitPulse.value ? 0.4 : 1) : 1)
+        .disabled(!app.hasSpecific && !app.hasPending)
+        .opacity(app.hasPending ? (commitPulse.value ? 0.4 : 1) : 1)
         .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: commitPulse.value)
-        .help(app.hasPendingCommit ? "Commit changes (update WebP)" : (app.hasSpecific ? "Committed" : "Follows global"))
+        .help(app.hasPending ? "Commit changes (update WebP)" : (app.hasSpecific ? "Committed" : "Follows global"))
     }
 
     private func iconButton(_ name: String, help: String, tint: Color? = nil, enabled: Bool = true, action: @escaping () -> Void) -> some View {
@@ -445,7 +449,7 @@ struct PhotoEditDialog: View {
         }
         .padding(14 * s)
         .frame(width: 240 * s)
-        .onDisappear { app.draft = nil }
+        .onDisappear { if app.draft != nil { app.cancelDraft() } }
     }
 
     private func binding(_ kp: WritableKeyPath<PhotoAdjustment, Double>) -> Binding<Double> {
@@ -456,13 +460,12 @@ struct PhotoEditDialog: View {
     }
 
     private func commit() {
-        if let d = app.draft { app.commitSpecific(d) }
-        app.draft = nil
+        app.saveDraft()
         isPresented = false
     }
 
     private func cancel() {
-        app.draft = nil
+        app.cancelDraft()
         isPresented = false
     }
 }

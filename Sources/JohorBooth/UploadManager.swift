@@ -198,11 +198,10 @@ final class UploadManager: ObservableObject {
         filesDone = 0
         filesTotal = 0
         let local = WorkPaths.upload(in: app.cameraFolderURL)
-        let doneDir = WorkPaths.done(in: app.cameraFolderURL)
         let started = Date()
         Task {
             let report = await Task.detached(priority: .utility) { [weak self] in
-                UploadManager.syncOnce(local: local, done: doneDir, remote: remote) { done, total, bytes in
+                UploadManager.syncOnce(local: local, remote: remote) { done, total, bytes in
                     let elapsed = Date().timeIntervalSince(started)
                     Task { @MainActor in
                         guard let self else { return }
@@ -223,7 +222,7 @@ final class UploadManager: ObservableObject {
                 return
             }
             if report.uploaded + report.alreadyThere > 0 {
-                Log.ok("Sync: \(report.uploaded) uploaded, \(report.alreadyThere) already on TrueNAS — moved to DONE")
+                Log.ok("Sync: \(report.uploaded) uploaded, \(report.alreadyThere) already on TrueNAS")
             }
             status = report.failed == 0 ? "Connected — in sync" : "Connected — \(report.failed) file(s) failed, will retry"
             if syncQueued {
@@ -235,8 +234,13 @@ final class UploadManager: ObservableObject {
 
     func refreshCounts() {
         guard let app else { return }
-        pending = Self.webpCount(in: WorkPaths.upload(in: app.cameraFolderURL))
-        done = Self.webpCount(in: WorkPaths.done(in: app.cameraFolderURL))
+        let local = Self.webpFiles(in: WorkPaths.upload(in: app.cameraFolderURL))
+        var remoteSet = Set<String>()
+        if let remote = remoteURL, let names = try? FileManager.default.contentsOfDirectory(atPath: remote.path) {
+            remoteSet = Set(names)
+        }
+        pending = local.filter { !remoteSet.contains($0.lastPathComponent) }.count
+        done = local.count - pending
     }
 
     private func startSyncTimer() {
@@ -289,7 +293,6 @@ final class UploadManager: ObservableObject {
 
     nonisolated static func syncOnce(
         local: URL,
-        done: URL,
         remote: URL,
         progress: (@Sendable (_ done: Int, _ total: Int, _ bytes: Int64) -> Void)? = nil
     ) -> SyncReport {
@@ -306,7 +309,6 @@ final class UploadManager: ObservableObject {
             report.fatal = "Cannot list TrueNAS folder: \(error.localizedDescription)"
             return report
         }
-        try? fm.ensureDirectory(done)
         let files = webpFiles(in: local)
         progress?(0, files.count, 0)
         for file in files {
@@ -324,9 +326,6 @@ final class UploadManager: ObservableObject {
                     report.bytes += size
                     Log.ok("Uploaded \(name)")
                 }
-                let target = done.appendingPathComponent(name)
-                if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
-                try fm.moveItem(at: file, to: target)
                 progress?(report.uploaded + report.alreadyThere + report.failed, files.count, report.bytes)
             } catch {
                 if !fm.isDirectory(remote) {

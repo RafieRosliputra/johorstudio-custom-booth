@@ -34,11 +34,11 @@ final class ThumbnailStore: ObservableObject {
         guard cache.object(forKey: key as NSString) == nil, !loading.contains(key) else { return }
         loading.insert(key)
         let source = previewSource(for: url)
-        let specific = app?.photoAdjustments[url.lastPathComponent]
+        let adjustment = app?.effectiveAdjustment(for: url)
         queue.async {
             var image = ImageDecode.downsampled(source, maxPixel: ImageDecode.thumbnailPixel)
-            if let specific, let img = image {
-                image = ImageAdjust.render(img, gamma: specific.gamma, rotation: specific.rotation)
+            if let adjustment, let img = image {
+                image = ImageAdjust.render(img, gamma: adjustment.gamma, rotation: adjustment.rotation)
             }
             Task { @MainActor in
                 self.loading.remove(key)

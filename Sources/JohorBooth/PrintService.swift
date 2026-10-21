@@ -198,8 +198,7 @@ final class PrintService: ObservableObject {
         var record = history[key] ?? newRecord(for: url)
         let webpName = record.webp ?? "\(record.base)-\(record.suffix).webp"
         let uploadDir = WorkPaths.upload(in: app.cameraFolderURL)
-        let doneDir = WorkPaths.done(in: app.cameraFolderURL)
-        let originalDir = app.paths.root.appendingPathComponent("webp", isDirectory: true).appendingPathComponent("original", isDirectory: true)
+        let originalDir = WorkPaths.original(in: app.cameraFolderURL)
         let area = app.settings.printArea.cgRect
         let frame = app.effectiveFrame.rect
         let compositor = app.compositor
@@ -220,11 +219,8 @@ final class PrintService: ObservableObject {
                     try fm.ensureDirectory(originalDir)
                     // Back up the existing WebP before overwriting.
                     let oldUpload = uploadDir.appendingPathComponent(webpName)
-                    let oldDone = doneDir.appendingPathComponent(webpName)
                     if fm.fileExists(atPath: oldUpload.path) {
                         try fm.moveItem(at: oldUpload, to: Self.backupName(for: webpName, in: originalDir))
-                    } else if fm.fileExists(atPath: oldDone.path) {
-                        try fm.moveItem(at: oldDone, to: Self.backupName(for: webpName, in: originalDir))
                     }
                     let canvas = try compositor.composite(photo: url, overlay: overlay, area: area, frame: frame, gamma: gamma, rotation: rotation)
                     let webp = try ImageExport.webpData(compositor.render(canvas, size: Compositor.canvas), quality: 50)
@@ -243,7 +239,6 @@ final class PrintService: ObservableObject {
                     saveHistory()
                 }
                 Log.ok("Regenerated \(webpName)")
-                app.markCommitted(key)
                 app.upload.refreshCounts()
                 if app.upload.enabled { app.upload.syncNow() }
             case .failure(let error):
@@ -366,10 +361,8 @@ final class PrintService: ObservableObject {
 
     private func webpFileExists(_ name: String) -> Bool {
         guard let app else { return false }
-        let fm = FileManager.default
         let upload = WorkPaths.upload(in: app.cameraFolderURL).appendingPathComponent(name)
-        let done = WorkPaths.done(in: app.cameraFolderURL).appendingPathComponent(name)
-        return fm.fileExists(atPath: upload.path) || fm.fileExists(atPath: done.path)
+        return FileManager.default.fileExists(atPath: upload.path)
     }
 
     /// The generated WebP filename (with extension) for a photo, or nil if not made yet.

@@ -47,9 +47,9 @@ final class AppState: ObservableObject {
 
     /// Per-photo specific settings (override global), keyed by filename.
     @Published private(set) var photoAdjustments: [String: PhotoAdjustment] = [:]
-    /// Photos whose specific settings were OK'd but whose WebP is not yet regenerated.
-    @Published private(set) var pendingCommit: Set<String> = []
-    /// Tentative per-photo edit (edit dialog open) — preview-only until OK.
+    /// Per-photo OK'd-but-not-committed drafts (yellow ring), keyed by filename.
+    @Published private(set) var pendingDrafts: [String: PhotoAdjustment] = [:]
+    /// Tentative per-photo edit (edit dialog open) — preview-only until OK/commit.
     @Published var draft: PhotoAdjustment?
     /// Copied via CMD+C for CMD+V paste.
     private var clipboardAdjustment: PhotoAdjustment?
@@ -64,20 +64,40 @@ final class AppState: ObservableObject {
         return photoAdjustments[url.lastPathComponent]
     }
 
-    var hasSpecific: Bool { currentSpecific != nil }
-
-    /// The current photo has specific changes waiting for a WebP commit.
-    var hasPendingCommit: Bool {
-        guard let url = library.current else { return false }
-        return pendingCommit.contains(url.lastPathComponent)
+    var currentPending: PhotoAdjustment? {
+        guard let url = library.current else { return nil }
+        return pendingDrafts[url.lastPathComponent]
     }
 
-    var effectiveGamma: Double { draft?.gamma ?? currentSpecific?.gamma ?? gamma }
-    var effectiveRotation: Double { draft?.rotation ?? currentSpecific?.rotation ?? rotation }
+    var hasSpecific: Bool { currentSpecific != nil }
+
+    /// Yellow ring: an uncommitted edit is pending for the current photo.
+    var hasPending: Bool { draft != nil || currentPending != nil }
+
+    /// Per-photo ring: none / yellow (pending) / red (committed specific).
+    enum Ring: Int { case none = 0, yellow = 1, red = 2 }
+    func ring(for url: URL) -> Ring {
+        let name = url.lastPathComponent
+        if pendingDrafts[name] != nil { return .yellow }
+        if photoAdjustments[name] != nil { return .red }
+        return .none
+    }
+
+    /// Effective gamma/rotation for a specific URL (pending > specific > global).
+    func effectiveAdjustment(for url: URL) -> (gamma: Double, rotation: Double)? {
+        let name = url.lastPathComponent
+        let g = pendingDrafts[name]?.gamma ?? photoAdjustments[name]?.gamma ?? gamma
+        let r = pendingDrafts[name]?.rotation ?? photoAdjustments[name]?.rotation ?? rotation
+        if abs(g - 1.0) < 0.0005, abs(r) < 0.0005 { return nil }
+        return (g, r)
+    }
+
+    var effectiveGamma: Double { draft?.gamma ?? currentPending?.gamma ?? currentSpecific?.gamma ?? gamma }
+    var effectiveRotation: Double { draft?.rotation ?? currentPending?.rotation ?? currentSpecific?.rotation ?? rotation }
 
     /// Begin editing this photo: detach from global into a preview-only draft.
     func beginEdit() {
-        draft = currentSpecific ?? PhotoAdjustment.snapshot(gamma: gamma, rotation: rotation, frame: effectiveFrame)
+        draft = currentPending ?? currentSpecific ?? PhotoAdjustment.snapshot(gamma: gamma, rotation: rotation, frame: effectiveFrame)
     }
 
     func updateDraft(_ transform: (inout PhotoAdjustment) -> Void) {
@@ -230,8 +250,8 @@ final class AppState: ObservableObject {
         var folders: [(String, URL)] = [("logs", paths.logs)]
         if settings.cameraFolder == nil { folders.append(("directory", paths.defaultCamera)) }
         if fm.isDirectory(cameraFolderURL) || settings.cameraFolder == nil {
-            folders.append(("upload", WorkPaths.upload(in: cameraFolderURL)))
-            folders.append(("upload/DONE", WorkPaths.done(in: cameraFolderURL)))
+            folders.append(("WEBP", WorkPaths.upload(in: cameraFolderURL)))
+            folders.append(("WEBP/ORIGINAL", WorkPaths.original(in: cameraFolderURL)))
         }
         for (label, url) in folders where !fm.isDirectory(url) {
             do {
@@ -339,7 +359,7 @@ final class AppState: ObservableObject {
     /// The photo rect actually in use: the edit draft, else the per-photo specific
     /// frame, else the user's global frame, else the overlay's area.
     var effectiveFrame: PhotoFrame {
-        draft?.frame ?? currentSpecific?.frame ?? photoFrame ?? PhotoFrame(settings.printArea.cgRect)
+        draft?.frame ?? currentPending?.frame ?? currentSpecific?.frame ?? photoFrame ?? PhotoFrame(settings.printArea.cgRect)
     }
 
     /// 100% = photo exactly fills the overlay's photo area.
@@ -350,14 +370,16 @@ final class AppState: ObservableObject {
     }
 
     /// Updates the frame the preview/print uses — the edit draft when open, else
-    /// the specific photo's frame, else the global frame.
+    /// the (pending) specific photo's frame, else the global frame.
     func updateEffectiveFrame(_ frame: PhotoFrame) {
         let clamped = frame.clamped()
         if draft != nil {
             updateDraft { $0.x = clamped.x; $0.y = clamped.y; $0.w = clamped.w; $0.h = clamped.h }
-        } else if var specific = currentSpecific {
-            specific.x = clamped.x; specific.y = clamped.y; specific.w = clamped.w; specific.h = clamped.h
-            setSpecific(specific, log: false)
+        } else if let url = library.current, currentSpecific != nil || currentPending != nil {
+            var adj = currentPending ?? currentSpecific!
+            adj.x = clamped.x; adj.y = clamped.y; adj.w = clamped.w; adj.h = clamped.h
+            pendingDrafts[url.lastPathComponent] = adj
+            renderPreviewPhoto()
         } else {
             photoFrame = clamped
         }
@@ -374,14 +396,14 @@ final class AppState: ObservableObject {
 
     /// Zoom badge double-click: back to 100% (fill the photo area).
     func resetZoom() {
+        let area = settings.printArea.cgRect
         if draft != nil {
-            let area = settings.printArea.cgRect
             updateDraft { $0.x = area.minX; $0.y = area.minY; $0.w = area.width; $0.h = area.height }
-        } else if currentSpecific != nil {
-            var specific = currentSpecific!
-            let area = settings.printArea.cgRect
-            specific.x = area.minX; specific.y = area.minY; specific.w = area.width; specific.h = area.height
-            setSpecific(specific, log: false)
+        } else if let url = library.current, currentSpecific != nil || currentPending != nil {
+            var adj = currentPending ?? currentSpecific!
+            adj.x = area.minX; adj.y = area.minY; adj.w = area.width; adj.h = area.height
+            pendingDrafts[url.lastPathComponent] = adj
+            renderPreviewPhoto()
         } else {
             photoFrame = nil
         }
@@ -472,17 +494,20 @@ final class AppState: ObservableObject {
 
     // MARK: - Per-photo specific settings
 
-    /// Snapshots the current GLOBAL settings as this photo's specific settings.
+    /// Snapshots the current GLOBAL settings as this photo's pending specific (yellow).
     func applyCurrentAsSpecific() {
-        guard library.current != nil else { return }
+        guard let url = library.current else { return }
         let adj = PhotoAdjustment.snapshot(gamma: gamma, rotation: rotation, frame: effectiveFrame)
-        setSpecific(adj, log: true)
+        pendingDrafts[url.lastPathComponent] = adj
+        draft = nil
+        renderPreviewPhoto()
     }
 
     func resetPhotoSettings() {
         guard let url = library.current else { return }
         photoAdjustments.removeValue(forKey: url.lastPathComponent)
-        pendingCommit.remove(url.lastPathComponent)
+        pendingDrafts.removeValue(forKey: url.lastPathComponent)
+        draft = nil
         savePhotoSettings()
         Log.info("photo \(url.lastPathComponent): reset to global")
         renderPreviewPhoto()
@@ -496,36 +521,40 @@ final class AppState: ObservableObject {
     }
 
     func pasteSettings() {
-        guard library.current != nil, let adj = clipboardAdjustment else { return }
-        setSpecific(adj, log: true)
-    }
-
-    /// Applies specific settings AND marks them pending (WebP not yet updated).
-    private func setSpecific(_ adj: PhotoAdjustment, log: Bool) {
-        guard let url = library.current else { return }
-        photoAdjustments[url.lastPathComponent] = adj
-        pendingCommit.insert(url.lastPathComponent)
-        savePhotoSettings()
-        if log {
-            Log.info("photo \(url.lastPathComponent): γ\(Self.number(adj.gamma)) r\(Self.number(adj.rotation)) pan \(Int(adj.x)),\(Int(adj.y)) zoom \(Int(adj.w)),\(Int(adj.h))")
-        }
+        guard let url = library.current, let adj = clipboardAdjustment else { return }
+        pendingDrafts[url.lastPathComponent] = adj
+        draft = nil
         renderPreviewPhoto()
     }
 
-    /// Per-photo editor OK (PhotoEditDialog): set specific + mark pending.
-    func commitSpecific(_ adj: PhotoAdjustment) {
-        setSpecific(adj, log: true)
+    /// Edit dialog OK: keep the draft as a pending change (yellow ring, pulse).
+    func saveDraft() {
+        guard let d = draft, let url = library.current else { return }
+        pendingDrafts[url.lastPathComponent] = d
+        draft = nil
+        renderPreviewPhoto()
     }
 
-    /// Commit icon: regenerate the current photo's WebP (local + TrueNAS + backup).
-    func commitWebp() {
+    /// Edit dialog Cancel / dismiss: discard the draft, back to the pre-edit state.
+    func cancelDraft() {
+        draft = nil
+        renderPreviewPhoto()
+    }
+
+    /// Commit icon: apply the pending draft (or active draft) as specific, then
+    /// regenerate the WebP (local + TrueNAS + backup) and the 2000px preview.
+    func commitPhoto() {
         guard let url = library.current else { return }
+        if let d = draft { pendingDrafts[url.lastPathComponent] = d; draft = nil }
+        guard let adj = pendingDrafts[url.lastPathComponent] else { return }
+        photoAdjustments[url.lastPathComponent] = adj
+        pendingDrafts[url.lastPathComponent] = nil
+        draft = nil
+        savePhotoSettings()
+        Log.info("photo \(url.lastPathComponent): committed γ\(Self.number(adj.gamma)) r\(Self.number(adj.rotation)) pan \(Int(adj.x)),\(Int(adj.y)) zoom \(Int(adj.w)),\(Int(adj.h))")
+        renderPreviewPhoto()
         printer.reprepareUpload(for: url)
-    }
-
-    /// Called by PrintService after a successful WebP (re)generate.
-    func markCommitted(_ filename: String) {
-        pendingCommit.remove(filename)
+        preview.bakeAdjustment(for: url, gamma: adj.gamma, rotation: adj.rotation)
     }
 
     // MARK: - Per-photo persistence (logs/photo-settings.json)

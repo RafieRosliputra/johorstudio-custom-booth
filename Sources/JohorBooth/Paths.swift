@@ -32,8 +32,8 @@ struct WorkPaths {
     var settingsFile: URL { root.appendingPathComponent("settings.json") }
     var historyFile: URL { root.appendingPathComponent("print-history.json") }
 
-    static func upload(in camera: URL) -> URL { camera.appendingPathComponent("upload", isDirectory: true) }
-    static func done(in camera: URL) -> URL { upload(in: camera).appendingPathComponent("DONE", isDirectory: true) }
+    static func upload(in camera: URL) -> URL { camera.appendingPathComponent("WEBP", isDirectory: true) }
+    static func original(in camera: URL) -> URL { upload(in: camera).appendingPathComponent("ORIGINAL", isDirectory: true) }
 }
 
 extension FileManager {

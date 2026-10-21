@@ -49,7 +49,7 @@ struct PrintTab: View {
 
     /// Common print path: ask to commit uncommitted per-photo changes first.
     private func requestPrint(_ n: Int, log: String) {
-        if app.hasPendingCommit {
+        if app.hasPending {
             commitPrint.value = (n, log)
         } else {
             doPrint(n, log: log)
@@ -130,7 +130,7 @@ struct PrintTab: View {
             Button("YES") {
                 guard let p = commitPrint.value else { return }
                 commitPrint.value = nil
-                app.commitWebp()
+                app.commitPhoto()
                 doPrint(p.count, log: p.log)
             }
             Button("NO") {

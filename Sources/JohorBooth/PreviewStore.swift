@@ -50,12 +50,32 @@ final class PreviewStore: ObservableObject {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
-    /// Quick Look list: the small preview where it exists, else the original.
+    /// Quick Look list: the baked 2000px copy (with gamma/rotation) where it
+    /// exists, else the plain preview, else the original.
     func quickLookURLs(for files: [URL]) -> [URL] {
         files.map { url in
+            if let baked = bakedURL(for: url), FileManager.default.fileExists(atPath: baked.path) { return baked }
             if let p = previewURL(for: url), FileManager.default.fileExists(atPath: p.path) { return p }
             return url
         }
+    }
+
+    /// Regenerates a gamma/rotation-baked 2000px copy (for Quick Look) on commit.
+    func bakeAdjustment(for original: URL, gamma: Double, rotation: Double) {
+        guard let baked = bakedURL(for: original) else { return }
+        worker.async {
+            if let down = ImageDecode.downsampled(original, maxPixel: ImageDecode.previewPixel),
+               let adjusted = ImageAdjust.render(down, gamma: gamma, rotation: rotation),
+               let data = try? ImageExport.jpegData(adjusted, quality: 0.5) {
+                try? ImageExport.writeAtomically(data, to: baked)
+            }
+        }
+    }
+
+    private func bakedURL(for original: URL) -> URL? {
+        guard let folder else { return nil }
+        let base = original.deletingPathExtension().lastPathComponent
+        return folder.appendingPathComponent("\(base).ql.jpg")
     }
 
     func refreshReady() {
