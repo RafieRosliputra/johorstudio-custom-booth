@@ -59,27 +59,12 @@ struct HeaderBar: View {
             }
             HStack(spacing: 6) {
                 TabButton(.print)
-                HStack(spacing: 2) {
-                    TabButton(.upload)
-                    Toggle("", isOn: Binding(
-                        get: { upload.enabled || upload.checking },
-                        set: { upload.userToggled($0) }
-                    ))
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-                    .disabled(upload.checking)
-                    .help("Upload to TrueNAS (checks the connection first)")
-                }
+                TabButton(.upload)
                 TabButton(.log)
                 TabButton(.screen)
                 Spacer()
-                if upload.recovered {
-                    Label("TrueNAS available — tick UPLOAD", systemImage: "externaldrive.badge.checkmark")
-                        .foregroundStyle(.blue)
-                }
-                if upload.enabled {
-                    Label("Upload ON", systemImage: "icloud.and.arrow.up").foregroundStyle(.green)
-                }
+                SyncControl(upload: upload, compact: true)
+                    .frame(width: 190 * s)
                 if screen.isOpen {
                     Label("2nd screen ON", systemImage: "display.2").foregroundStyle(.green)
                 }

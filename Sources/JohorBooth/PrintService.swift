@@ -16,9 +16,15 @@ final class PrintService: ObservableObject {
 
     @Published private(set) var busy = false
     @Published private(set) var status = ""
+    /// Livefolder photos that do not have their 2500×1667 WebP yet.
+    @Published private(set) var unsynced = 0
+    /// Photos waiting in the background prep queue.
+    @Published private(set) var preparing = 0
 
     private var history: [String: PrintRecord] = [:]
     private var historyURL: URL?
+    private var prepareQueue: [URL] = []
+    private var prepareActive = false
 
     private static let nameFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -89,6 +95,7 @@ final class PrintService: ObservableObject {
         let webpName = record.webp == nil ? "\(base)-\(suffix).webp" : nil
         let uploadDir = WorkPaths.upload(in: app.cameraFolderURL)
         let area = app.settings.printArea.cgRect
+        let frame = app.effectiveFrame.rect
         let compositor = app.compositor
 
         busy = true
@@ -102,7 +109,7 @@ final class PrintService: ObservableObject {
             let result = await Task.detached(priority: .userInitiated) { () -> Result<[String], Error> in
                 Result { () throws -> [String] in
                     let fm = FileManager.default
-                    let canvas = try compositor.composite(photo: source, overlay: overlay, area: area)
+                    let canvas = try compositor.composite(photo: source, overlay: overlay, area: area, frame: frame)
                     let jpg = try ImageExport.jpegData(compositor.render(canvas, size: Compositor.printSize))
                     var written: [String] = []
                     for n in first..<(first + count) {
@@ -124,10 +131,11 @@ final class PrintService: ObservableObject {
         }
     }
 
-    /// UPLOAD button: makes only the 2500×1667 WebP for TrueNAS — nothing goes to the hotfolder.
+    /// Makes the 2500×1667 WebP for the current photo only (the SYNC panel uses
+    /// the automatic pipeline — this stays for keyboard/legacy callers).
     func uploadOnly() {
-        guard let app, !busy else { return }
-        guard let overlay = app.overlayCI else {
+        guard let app else { return }
+        guard app.overlayCI != nil else {
             app.showAlert(title: "Cannot upload", message: "details not loaded — select an overlay first.")
             return
         }
@@ -135,61 +143,118 @@ final class PrintService: ObservableObject {
             app.showAlert(title: "Cannot upload", message: "No image loaded. Press LATEST IMAGE NAME first.")
             return
         }
-        let key = source.lastPathComponent
-        let record = history[key] ?? newRecord(for: source)
-        if let existing = record.webp {
-            Log.info("UPLOAD: \(existing) was already made for \(key) — not making it again")
-            status = "\(existing) already queued/uploaded"
-            app.upload.syncNow()
+        prepareUpload(for: source)
+    }
+
+    // MARK: - Automatic TrueNAS preparation
+
+    /// Every photo that lands in the livefolder is composited with the overlay (and
+    /// the operator's zoom/pan) and written to DIRECTORY/upload as a 2500×1667 WebP.
+    func prepareUpload(for source: URL) {
+        enqueuePrepare([source])
+    }
+
+    /// Backfill: every livefolder photo that has no WebP yet.
+    func prepareAllMissing() {
+        guard let app else { return }
+        enqueuePrepare(app.library.files)
+    }
+
+    /// Re-counts livefolder photos that still have no WebP (drives the SYNC panel).
+    func refreshUnsynced() {
+        guard let app else {
+            if unsynced != 0 { unsynced = 0 }
             return
         }
+        var missing = 0
+        for url in app.library.files {
+            if let name = history[url.lastPathComponent]?.webp, webpFileExists(name) { continue }
+            missing += 1
+        }
+        if unsynced != missing { unsynced = missing }
+    }
+
+    private func enqueuePrepare(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        for url in urls where !prepareQueue.contains(url) { prepareQueue.append(url) }
+        preparing = prepareQueue.count
+        pumpPrepare()
+    }
+
+    private func pumpPrepare() {
+        guard !prepareActive, let app else { return }
+        preparing = prepareQueue.count
+        guard !prepareQueue.isEmpty else {
+            refreshUnsynced()
+            return
+        }
+        guard let overlay = app.overlayCI else {
+            Log.warn("UPLOAD: \(prepareQueue.count) photo(s) waiting — no overlay loaded yet")
+            return
+        }
+        if busy {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.pumpPrepare() }
+            return
+        }
+
+        let source = prepareQueue.removeFirst()
+        preparing = prepareQueue.count
+        let key = source.lastPathComponent
+        var record = history[key] ?? newRecord(for: source)
+        let webpName = record.webp ?? "\(record.base)-\(record.suffix).webp"
+        if let existing = record.webp, webpFileExists(existing) {
+            DispatchQueue.main.async { [weak self] in self?.pumpPrepare() }
+            return
+        }
+        record.webp = nil
         history[key] = record
         saveHistory()
 
-        let webpName = "\(record.base)-\(record.suffix).webp"
         let uploadDir = WorkPaths.upload(in: app.cameraFolderURL)
         let area = app.settings.printArea.cgRect
+        let frame = app.effectiveFrame.rect
         let compositor = app.compositor
 
-        busy = true
-        status = "Preparing upload of \(key)…"
-        Log.info("UPLOAD only: \(key) → \(webpName) (no print)")
-
+        prepareActive = true
+        Log.info("UPLOAD prep: \(key) → \(webpName)")
         Task {
-            if !(await FileReady.wait(source, timeout: 10)) {
-                Log.warn("\(key) may still be writing — processing anyway")
+            if !(await FileReady.wait(source, timeout: 15)) {
+                Log.warn("\(key) may still be writing — preparing anyway")
             }
-            let result = await Task.detached(priority: .userInitiated) { () -> Result<[String], Error> in
-                Result { () throws -> [String] in
+            let result = await Task.detached(priority: .utility) { () -> Result<Void, Error> in
+                Result {
                     try FileManager.default.ensureDirectory(uploadDir)
-                    let canvas = try compositor.composite(photo: source, overlay: overlay, area: area)
+                    let canvas = try compositor.composite(photo: source, overlay: overlay, area: area, frame: frame)
                     let webp = try ImageExport.webpData(compositor.render(canvas, size: Compositor.canvas), quality: 50)
                     try ImageExport.writeAtomically(webp, to: uploadDir.appendingPathComponent(webpName))
-                    return [webpName]
                 }
             }.value
-            busy = false
+            prepareActive = false
             switch result {
             case .success:
-                Log.ok("Saved \(webpName)")
                 if var saved = history[key] {
                     saved.webp = webpName
                     history[key] = saved
                     saveHistory()
                 }
-                if app.upload.enabled {
-                    status = "\(webpName) sent to upload queue"
-                } else {
-                    status = "\(webpName) saved — tick UPLOAD to send to TrueNAS"
-                    Log.warn("UPLOAD is off — \(webpName) waits in the upload folder")
-                }
-                app.upload.syncNow()
+                Log.ok("Prepared \(webpName) for TrueNAS")
+                refreshUnsynced()
+                app.upload.refreshCounts()
+                if app.upload.enabled { app.upload.syncNow() }
             case .failure(let error):
-                status = "Upload failed: \(error.localizedDescription)"
-                Log.error("UPLOAD failed for \(key): \(error.localizedDescription)")
-                app.showAlert(title: "Upload failed", message: "\(key)\n\(error.localizedDescription)")
+                Log.error("UPLOAD prep failed for \(key): \(error.localizedDescription)")
+                refreshUnsynced()
             }
+            pumpPrepare()
         }
+    }
+
+    private func webpFileExists(_ name: String) -> Bool {
+        guard let app else { return false }
+        let fm = FileManager.default
+        let upload = WorkPaths.upload(in: app.cameraFolderURL).appendingPathComponent(name)
+        let done = WorkPaths.done(in: app.cameraFolderURL).appendingPathComponent(name)
+        return fm.fileExists(atPath: upload.path) || fm.fileExists(atPath: done.path)
     }
 
     private func finish(_ result: Result<[String], Error>, key: String, count: Int, webpName: String?) {

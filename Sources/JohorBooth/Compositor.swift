@@ -21,14 +21,16 @@ final class Compositor {
         ])
     }
 
-    /// `area` is in top-left canvas pixels (the greenLayer rectangle).
-    func composite(photo url: URL, overlay: CIImage?, area: CGRect) throws -> CIImage {
+    /// `area` is the overlay's photo window; `frame` (top-left canvas pixels) overrides it
+    /// when the operator zoomed or dragged the photo.
+    func composite(photo url: URL, overlay: CIImage?, area: CGRect, frame: CGRect? = nil) throws -> CIImage {
         guard var photo = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else {
             throw BoothError.cannotRead(url.lastPathComponent)
         }
         let canvasRect = CGRect(origin: .zero, size: Self.canvas)
+        let source = frame ?? area
         // Core Image is bottom-left based.
-        let target = CGRect(x: area.minX, y: Self.canvas.height - area.maxY, width: area.width, height: area.height)
+        let target = CGRect(x: source.minX, y: Self.canvas.height - source.maxY, width: source.width, height: source.height)
 
         photo = photo.transformed(by: CGAffineTransform(translationX: -photo.extent.minX, y: -photo.extent.minY))
         let scale = max(target.width / photo.extent.width, target.height / photo.extent.height)

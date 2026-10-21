@@ -102,6 +102,13 @@ final class ImageLibrary: ObservableObject {
         current = files[i - 1]
     }
 
+    /// Single click in the filmstrip: show that photo in the big preview.
+    func select(_ url: URL) {
+        guard files.contains(url), current != url else { return }
+        current = url
+        Log.info("Selected: \(url.lastPathComponent)")
+    }
+
     private func apply(_ list: [URL], folder: URL) {
         guard folder == self.folder else { return }
         if list != files { files = list }

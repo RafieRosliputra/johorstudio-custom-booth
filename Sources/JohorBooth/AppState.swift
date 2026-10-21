@@ -30,10 +30,18 @@ final class AppState: ObservableObject {
 
     @Published private(set) var overlayCI: CIImage?
     @Published private(set) var overlayCG: CGImage?
-    @Published private(set) var previewImage: CGImage?
+    /// The livefolder photo, downsampled to 1500 px. The overlay is drawn on top
+    /// of it in the view, so zoom/pan only ever touch the photo.
+    @Published private(set) var previewPhoto: CGImage?
     @Published private(set) var previewMessage: String? = "details not loaded"
 
+    /// Where the photo sits on the canvas. `nil` = fill the overlay's photo area.
+    /// Deliberately not part of `AppSettings`: this changes on every scroll tick
+    /// and must not hit the disk.
+    @Published var photoFrame: PhotoFrame?
+
     let library = ImageLibrary()
+    let thumbs = ThumbnailStore()
     let compositor = Compositor()
     let capture = CaptureManager()
     let printer: PrintService
@@ -75,12 +83,20 @@ final class AppState: ObservableObject {
             .map(\.isEmpty)
             .removeDuplicates()
             .sink { [weak self] _ in
-                Task { @MainActor in self?.refreshPreview() }
+                Task { @MainActor in
+                    self?.refreshPreview()
+                    self?.printer.refreshUnsynced()
+                }
             }
             .store(in: &cancellables)
         library.newImageReady
             .sink { [weak self] url in
-                Task { @MainActor in self?.screen.showNewImage(url) }
+                Task { @MainActor in
+                    self?.screen.showNewImage(url)
+                    // Every photo that lands in the livefolder is composited and
+                    // queued for TrueNAS straight away — no operator action needed.
+                    self?.printer.prepareUpload(for: url)
+                }
             }
             .store(in: &cancellables)
     }
@@ -237,38 +253,57 @@ final class AppState: ObservableObject {
 
     // MARK: - Preview
 
+    /// The photo rect actually in use: the user's frame, or the overlay's area.
+    var effectiveFrame: PhotoFrame {
+        photoFrame ?? PhotoFrame(settings.printArea.cgRect)
+    }
+
+    /// 100% = photo exactly fills the overlay's photo area.
+    var photoZoom: Double {
+        let area = settings.printArea.cgRect
+        guard area.width > 0 else { return 1 }
+        return effectiveFrame.w / area.width
+    }
+
+    /// Keep the current size but put the photo back in the middle of the area.
+    func centrePhoto() {
+        let area = settings.printArea.cgRect
+        var frame = effectiveFrame
+        frame.x = area.midX - frame.w / 2
+        frame.y = area.midY - frame.h / 2
+        photoFrame = frame.clamped()
+    }
+
     func refreshPreview() {
         previewGeneration += 1
         let generation = previewGeneration
-        guard detailsLoaded, let overlay = overlayCI else {
-            previewImage = nil
+        guard detailsLoaded, overlayCI != nil else {
+            previewPhoto = nil
             previewMessage = "details not loaded"
             return
         }
         guard let url = library.current else {
-            previewImage = nil
+            previewPhoto = nil
             previewMessage = library.files.isEmpty ? "No images in directory yet" : "Press LATEST IMAGE NAME to load"
             return
         }
-        let area = settings.printArea.cgRect
-        let compositor = self.compositor
         Task {
             _ = await FileReady.wait(url, timeout: 10)
             let result = await Task.detached(priority: .userInitiated) { () -> Result<CGImage, Error> in
-                Result { () throws -> CGImage in
-                    try compositor.render(
-                        compositor.composite(photo: url, overlay: overlay, area: area),
-                        size: Compositor.previewSize
-                    )
+                Result {
+                    guard let image = ImageDecode.downsampled(url, maxPixel: ImageDecode.previewPixel) else {
+                        throw BoothError.cannotRead(url.lastPathComponent)
+                    }
+                    return image
                 }
             }.value
             guard generation == previewGeneration else { return }
             switch result {
             case .success(let image):
-                previewImage = image
+                previewPhoto = image
                 previewMessage = nil
             case .failure(let error):
-                previewImage = nil
+                previewPhoto = nil
                 previewMessage = "Cannot load \(url.lastPathComponent)"
                 Log.error("Preview failed for \(url.lastPathComponent): \(error.localizedDescription)")
             }

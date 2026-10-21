@@ -6,25 +6,35 @@ struct PrintTab: View {
     @ObservedObject var library: ImageLibrary
     @ObservedObject var printer: PrintService
 
-    @StateObject private var copiesText = Box("5")
-    @StateObject private var confirmCopies = Box<Int?>(nil)
+    @StateObject private var copiesText = Box("0")
     @StateObject private var showArea = Box(false)
     @StateObject private var confirmPurge = Box(false)
     @Environment(\.uiScale) private var s
 
     /// Upload does not need the hotfolder.
-    private var canUpload: Bool {
-        app.overlayCI != nil && library.current != nil && !printer.busy
-    }
-
     private var canPrint: Bool {
         app.detailsLoaded && library.current != nil && !printer.busy
     }
 
+    private func tapDigit(_ n: Int) {
+        let current = Int(copiesText.value) ?? 0
+        copiesText.value = String(min(current * 10 + n, 20))
+    }
+
+    private func printNow() {
+        guard let n = Int(copiesText.value), n > 0 else { return }
+        printer.printCopies(n)
+        copiesText.value = "0"
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 24 * s) {
-            PreviewPane()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 8 * s) {
+                PreviewPane()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Filmstrip(library: library, thumbs: app.thumbs)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             VStack(spacing: 10 * s) {
                 ScrollView(.vertical, showsIndicators: false) {
                     panel
@@ -36,19 +46,6 @@ struct PrintTab: View {
         .padding(24 * s)
         .onAppear { app.capture.addClient("print") }
         .onDisappear { app.capture.removeClient("print") }
-        .alert(
-            "Print \(confirmCopies.value ?? 0) cop\(confirmCopies.value == 1 ? "y" : "ies")?",
-            isPresented: Binding(get: { confirmCopies.value != nil }, set: { if !$0 { confirmCopies.value = nil } })
-        ) {
-            Button("Print") {
-                if let n = confirmCopies.value { printer.printCopies(n) }
-                confirmCopies.value = nil
-            }
-            .keyboardShortcut(.defaultAction)
-            Button("Cancel", role: .cancel) { confirmCopies.value = nil }
-        } message: {
-            Text("\(library.current?.lastPathComponent ?? "")\nJPG 1800×1200 → hotfolder")
-        }
     }
 
     private var panel: some View {
@@ -101,30 +98,31 @@ struct PrintTab: View {
             Text("PRINT, COPIES")
                 .font(.system(size: 15 * s, weight: .bold))
                 .padding(.top, 16 * s)
-            HStack(spacing: 8 * s) {
-                ForEach(1...5, id: \.self) { n in
-                    Button("\(n)") { confirmCopies.value = n }
-                        .buttonStyle(PanelButtonStyle())
+
+            // Custom print count: digits 1–0 build the number, PRINT runs it,
+            // then the count resets to 0. Outlined so it stays apart from COPY.
+            VStack(spacing: 8 * s) {
+                HStack(spacing: 4 * s) {
+                    ForEach(1...9, id: \.self) { n in
+                        Button("\(n)") { tapDigit(n) }
+                            .buttonStyle(PanelButtonStyle(compact: true))
+                            .disabled(!canPrint)
+                    }
+                    Button("0") { tapDigit(0) }
+                        .buttonStyle(PanelButtonStyle(compact: true))
                         .disabled(!canPrint)
                 }
+                Button("PRINT") { printNow() }
+                    .buttonStyle(PanelButtonStyle(prominent: true, compact: true))
+                    .disabled(!canPrint || (Int(copiesText.value) ?? 0) < 1)
             }
-            TextField("", text: $copiesText.value)
-                .multilineTextAlignment(.center)
-                .font(.system(size: 22 * s, weight: .bold))
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 90 * s)
-                .onChange(of: copiesText.value) { _, new in
-                    var digits = String(new.filter { $0.isASCII && $0.isNumber }.prefix(2))
-                    if let n = Int(digits), n > 20 { digits = "20" }
-                    if digits != new { copiesText.value = digits }
-                }
-            Button("PRINT") { confirmCopies.value = Int(copiesText.value) }
-                .buttonStyle(PanelButtonStyle(prominent: true))
-                .disabled(!canPrint || (Int(copiesText.value) ?? 0) < 1)
-            Button("UPLOAD") { printer.uploadOnly() }
-                .buttonStyle(PanelButtonStyle())
-                .disabled(!canUpload)
-                .help("Send this photo to TrueNAS only — no JPG to the hotfolder")
+            .padding(10 * s)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10 * s)
+                    .stroke(Color.accentColor.opacity(0.8), lineWidth: 1.5)
+            )
+
+            SyncControl(upload: app.upload, compact: true)
 
             Text(printer.busy ? "Working…" : printer.status)
                 .font(.caption)
@@ -166,29 +164,5 @@ struct PrintTab: View {
             } message: {
                 Text("Purge all printer job (remove all print queue)?\n\nEvery job on the default printer will be removed and will NOT print. This cannot be undone.")
             }
-    }
-}
-
-struct PreviewPane: View {
-    @EnvironmentObject var app: AppState
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(nsColor: .underPageBackgroundColor))
-            if let image = app.previewImage {
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .padding(12)
-            }
-            if let message = app.previewMessage {
-                Text(message)
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-            }
-        }
     }
 }

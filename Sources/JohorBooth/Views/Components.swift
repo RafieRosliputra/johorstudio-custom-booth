@@ -6,9 +6,16 @@ struct PanelButtonStyle: ButtonStyle {
     var highlighted = false
     var prominent = false
     var destructive = false
+    var compact = false
 
     func makeBody(configuration: Configuration) -> some View {
-        PanelButtonBody(configuration: configuration, highlighted: highlighted, prominent: prominent, destructive: destructive)
+        PanelButtonBody(
+            configuration: configuration,
+            highlighted: highlighted,
+            prominent: prominent,
+            destructive: destructive,
+            compact: compact
+        )
     }
 }
 
@@ -35,6 +42,7 @@ private struct PanelButtonBody: View {
     let highlighted: Bool
     let prominent: Bool
     let destructive: Bool
+    let compact: Bool
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.uiScale) private var s
 
@@ -47,15 +55,15 @@ private struct PanelButtonBody: View {
 
     var body: some View {
         configuration.label
-            .font(.system(size: 15 * s, weight: .bold))
+            .font(.system(size: (compact ? 13 : 15) * s, weight: .bold))
             .lineLimit(1)
             .minimumScaleFactor(0.6)
-            .frame(maxWidth: .infinity, minHeight: 40 * s)
+            .frame(maxWidth: .infinity, minHeight: (compact ? 30 : 40) * s)
             .foregroundStyle(highlighted || prominent || destructive ? Color.white : Color.primary)
-            .background(RoundedRectangle(cornerRadius: 10 * s).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: 10 * s).stroke(Color.secondary.opacity(0.35)))
+            .background(RoundedRectangle(cornerRadius: (compact ? 7 : 10) * s).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: (compact ? 7 : 10) * s).stroke(Color.secondary.opacity(0.35)))
             .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.35)
-            .contentShape(RoundedRectangle(cornerRadius: 10 * s))
+            .contentShape(RoundedRectangle(cornerRadius: (compact ? 7 : 10) * s))
     }
 }
 

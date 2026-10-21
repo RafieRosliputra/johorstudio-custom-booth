@@ -16,6 +16,13 @@ final class UploadManager: ObservableObject {
     @Published private(set) var lastSync: Date?
     /// Set when TrueNAS comes back after a failure; the user re-ticks UPLOAD.
     @Published private(set) var recovered = false
+    /// True as soon as a connection test succeeds, independent of autosync.
+    @Published private(set) var connected = false
+    /// Live upload throughput for the status line under the SYNC button.
+    @Published private(set) var bytesPerSecond: Double = 0
+    @Published private(set) var filesDone = 0
+    @Published private(set) var filesTotal = 0
+    @Published private(set) var syncingNow = false
 
     private var syncTimer: Timer?
     private var reconnectTimer: Timer?
@@ -25,6 +32,29 @@ final class UploadManager: ObservableObject {
 
     var remoteURL: URL? {
         app?.settings.truenasPath.map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    /// Files that still have to reach TrueNAS: WebPs waiting in the upload folder
+    /// plus livefolder photos that have not been composited into a WebP yet.
+    var remaining: Int {
+        pending + (app?.printer.unsynced ?? 0)
+    }
+
+    var speedText: String? {
+        guard bytesPerSecond > 1 else { return nil }
+        if bytesPerSecond >= 1_048_576 {
+            return String(format: "%.1f MB/s", bytesPerSecond / 1_048_576)
+        }
+        return String(format: "%.0f KB/s", bytesPerSecond / 1024)
+    }
+
+    /// One control: grey → connect, green → autosync off, green pulsing → autosync on.
+    func toggle() {
+        if enabled {
+            userToggled(false)
+        } else {
+            Task { await enable() }
+        }
     }
 
     // MARK: - Lifecycle
@@ -38,9 +68,11 @@ final class UploadManager: ObservableObject {
         } else if let remote = remoteURL {
             Task {
                 if let err = await Self.test(remote) {
+                    connected = false
                     Log.warn("TrueNAS not reachable (UPLOAD is off): \(err)")
                     status = "Off — not reachable"
                 } else {
+                    connected = true
                     Log.ok("TrueNAS reachable: \(remote.path) (UPLOAD is off)")
                     status = "Off — reachable"
                 }
@@ -58,7 +90,7 @@ final class UploadManager: ObservableObject {
             stopSyncTimer()
             app?.settings.uploadEnabled = false
             status = "Off"
-            Log.info("UPLOAD turned OFF")
+            Log.info("AUTOSYNC turned OFF")
         }
     }
 
@@ -78,18 +110,24 @@ final class UploadManager: ObservableObject {
             return
         }
         enabled = true
+        connected = true
         recovered = false
         stopReconnectWatch()
         app.settings.uploadEnabled = true
         status = "Connected"
-        Log.ok("TrueNAS connected — UPLOAD ON")
+        Log.ok("TrueNAS connected — AUTOSYNC ON")
         startSyncTimer()
+        // Backfill: photos already in the livefolder but never composited.
+        app.printer.prepareAllMissing()
         syncNow()
     }
 
     private func fail(_ reason: String) {
         enabled = false
+        connected = false
         checking = false
+        bytesPerSecond = 0
+        syncingNow = false
         stopSyncTimer()
         app?.settings.uploadEnabled = false
         status = "Not connected"
@@ -135,6 +173,7 @@ final class UploadManager: ObservableObject {
                     app?.showAlert(title: "TrueNAS not connected", message: err)
                 }
             } else {
+                connected = true
                 status = enabled ? "Connected" : "Off — reachable"
                 Log.ok("TrueNAS test OK: \(remote.path)")
             }
@@ -153,14 +192,29 @@ final class UploadManager: ObservableObject {
             return
         }
         syncing = true
+        syncingNow = true
         status = "Syncing…"
+        bytesPerSecond = 0
+        filesDone = 0
+        filesTotal = 0
         let local = WorkPaths.upload(in: app.cameraFolderURL)
         let doneDir = WorkPaths.done(in: app.cameraFolderURL)
+        let started = Date()
         Task {
-            let report = await Task.detached(priority: .utility) {
-                UploadManager.syncOnce(local: local, done: doneDir, remote: remote)
+            let report = await Task.detached(priority: .utility) { [weak self] in
+                UploadManager.syncOnce(local: local, done: doneDir, remote: remote) { done, total, bytes in
+                    let elapsed = Date().timeIntervalSince(started)
+                    Task { @MainActor in
+                        guard let self else { return }
+                        self.filesDone = done
+                        self.filesTotal = total
+                        self.bytesPerSecond = elapsed > 0.2 ? Double(bytes) / elapsed : 0
+                    }
+                }
             }.value
             syncing = false
+            syncingNow = false
+            bytesPerSecond = 0
             lastSync = Date()
             refreshCounts()
             guard enabled else { return }
@@ -215,6 +269,7 @@ final class UploadManager: ObservableObject {
         let err = await Self.test(remote)
         reconnectTesting = false
         if err == nil, !enabled {
+            connected = true
             recovered = true
             status = "Off — reachable again"
             stopReconnectWatch()
@@ -228,10 +283,16 @@ final class UploadManager: ObservableObject {
         var uploaded = 0
         var alreadyThere = 0
         var failed = 0
+        var bytes: Int64 = 0
         var fatal: String?
     }
 
-    nonisolated static func syncOnce(local: URL, done: URL, remote: URL) -> SyncReport {
+    nonisolated static func syncOnce(
+        local: URL,
+        done: URL,
+        remote: URL,
+        progress: (@Sendable (_ done: Int, _ total: Int, _ bytes: Int64) -> Void)? = nil
+    ) -> SyncReport {
         var report = SyncReport()
         let fm = FileManager.default
         guard fm.isDirectory(remote) else {
@@ -247,8 +308,10 @@ final class UploadManager: ObservableObject {
         }
         try? fm.ensureDirectory(done)
         let files = webpFiles(in: local)
+        progress?(0, files.count, 0)
         for file in files {
             let name = file.lastPathComponent
+            let size = Int64((try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
             do {
                 if remoteNames.contains(name) {
                     report.alreadyThere += 1
@@ -258,11 +321,13 @@ final class UploadManager: ObservableObject {
                     try fm.copyItem(at: file, to: tmp)
                     try fm.moveItem(at: tmp, to: remote.appendingPathComponent(name))
                     report.uploaded += 1
+                    report.bytes += size
                     Log.ok("Uploaded \(name)")
                 }
                 let target = done.appendingPathComponent(name)
                 if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
                 try fm.moveItem(at: file, to: target)
+                progress?(report.uploaded + report.alreadyThere + report.failed, files.count, report.bytes)
             } catch {
                 if !fm.isDirectory(remote) {
                     report.fatal = "Lost connection to TrueNAS while uploading \(name)"
@@ -270,6 +335,7 @@ final class UploadManager: ObservableObject {
                 }
                 report.failed += 1
                 Log.warn("Upload failed for \(name): \(error.localizedDescription)")
+                progress?(report.uploaded + report.alreadyThere + report.failed, files.count, report.bytes)
             }
         }
         return report
