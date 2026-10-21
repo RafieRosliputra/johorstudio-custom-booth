@@ -151,3 +151,55 @@ struct SecondsField: View {
         }
     }
 }
+
+/// A small numeric field that only commits on Enter — type freely, the value
+/// (and the field) stays put until you press Return. Icon only, no text label.
+struct NumberCommitField: View {
+    let icon: String
+    let suffix: String
+    @Binding var value: Double
+    @Environment(\.uiScale) private var s
+    @StateObject private var text = Box("")
+
+    private var currentValue: Double { value }
+
+    var body: some View {
+        HStack(spacing: 4 * s) {
+            if !icon.isEmpty {
+                Image(systemName: icon)
+                    .font(.system(size: 11 * s))
+                    .foregroundStyle(.secondary)
+            }
+            TextField("", text: $text.value)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11 * s))
+                .multilineTextAlignment(.center)
+                .frame(width: 56 * s)
+                .onSubmit { commit() }
+            if !suffix.isEmpty {
+                Text(suffix)
+                    .font(.system(size: 11 * s))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onAppear { text.value = Self.format(value) }
+        .onChange(of: currentValue) { _, v in text.value = Self.format(v) }
+    }
+
+    private func commit() {
+        let cleaned = text.value
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ",", with: ".")
+        if let d = Double(cleaned), d > 0 {
+            value = d
+        }
+        text.value = Self.format(value)
+    }
+
+    private static func format(_ v: Double) -> String {
+        var out = String(format: "%.2f", v)
+        while out.contains("."), out.hasSuffix("0") { out.removeLast() }
+        if out.hasSuffix(".") { out.removeLast() }
+        return out
+    }
+}

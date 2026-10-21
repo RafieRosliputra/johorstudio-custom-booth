@@ -110,18 +110,15 @@ struct PreviewPane: View {
 
     private var chrome: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8 * s) {
+            HStack(alignment: .top, spacing: 8 * s) {
                 Spacer()
-                zoomBadge
+                VStack(alignment: .trailing, spacing: 6 * s) {
+                    zoomBadge
+                    gammaField
+                }
                 frameButton
             }
             Spacer()
-            HStack {
-                Text("scroll = zoom · drag = move · space on a thumbnail = Quick Look")
-                    .font(.system(size: 10 * s))
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
         }
         .padding(12 * s)
     }
@@ -136,6 +133,22 @@ struct PreviewPane: View {
             .contentShape(Capsule())
             .onTapGesture(count: 2) { app.photoFrame = nil }
             .help("Photo size relative to the overlay's photo area — double-click to reset to 100%")
+    }
+
+    /// Mouse-wheel zoom sensitivity, right under the zoom badge (icon only).
+    private var gammaField: some View {
+        NumberCommitField(
+            icon: "slider.horizontal.3",
+            suffix: "",
+            value: Binding(
+                get: { app.settings.zoomGamma },
+                set: { app.settings.zoomGamma = $0 }
+            )
+        )
+        .padding(.horizontal, 6 * s)
+        .padding(.vertical, 3 * s)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7 * s))
+        .help("Mouse scroll zoom amount (Enter to apply)")
     }
 
     private var frameButton: some View {
@@ -188,22 +201,29 @@ struct PreviewPane: View {
         }
     }
 
+    /// Don't zoom while a text field (the gamma / count boxes) has focus.
+    private var isTyping: Bool {
+        NSApp.keyWindow?.firstResponder is NSText
+    }
+
     /// Only when the pointer is over the preview — everywhere else scroll passes
     /// through to whatever is underneath (the filmstrip, the panel, popovers).
     private func handleScroll(_ event: NSEvent) -> Bool {
+        guard !isTyping else { return false }
         guard let point = state.mouse, state.paneSize.width > 1 else { return false }
         let k = scale(for: state.paneSize)
         guard k > 0 else { return false }
         let dy = event.scrollingDeltaY
         guard dy != 0 else { return false }
 
-        // One step = 0.5%. A mouse-wheel notch is one step; a trackpad gesture maps
-        // its pixel delta to steps (10 px = one 0.5% step). Scroll up = zoom in.
+        // One step = `zoomStep` %. A mouse-wheel notch is `gamma` steps; a trackpad
+        // gesture maps its pixel delta to steps (10 px = one step). Scroll up = zoom in.
+        let stepPercent = max(0.01, app.settings.zoomStep)
         let stepCount: Double
         if event.hasPreciseScrollingDeltas {
             stepCount = Double(dy) / 10.0
         } else {
-            stepCount = dy > 0 ? -1 : 1
+            stepCount = (dy > 0 ? -1 : 1) * max(0.05, app.settings.zoomGamma)
         }
         let area = app.settings.printArea.cgRect
         guard area.width > 0 else { return false }
@@ -211,7 +231,7 @@ struct PreviewPane: View {
         guard currentZoom > 0 else { return false }
 
         // Clamp to 10% – 600% of the overlay's photo area.
-        let targetZoom = min(6.0, max(0.1, currentZoom * pow(1.005, stepCount)))
+        let targetZoom = min(6.0, max(0.1, currentZoom * pow(1 + stepPercent / 100, stepCount)))
         guard abs(targetZoom - currentZoom) > 0.0001 else { return true }
 
         let origin = CGPoint(
@@ -268,9 +288,30 @@ struct PhotoFrameEditor: View {
                 Spacer()
             }
 
-            Text("Scroll over the preview to zoom · drag to move")
-                .font(.system(size: 10 * s))
-                .foregroundStyle(.secondary)
+            Divider()
+
+            // Zoom step (%) and mouse-scroll amount — icon only, Enter to commit.
+            HStack(spacing: 12 * s) {
+                NumberCommitField(
+                    icon: "plus.magnifyingglass",
+                    suffix: "%",
+                    value: Binding(
+                        get: { app.settings.zoomStep },
+                        set: { app.settings.zoomStep = $0 }
+                    )
+                )
+                .help("Zoom % per scroll step (Enter to apply)")
+
+                NumberCommitField(
+                    icon: "slider.horizontal.3",
+                    suffix: "",
+                    value: Binding(
+                        get: { app.settings.zoomGamma },
+                        set: { app.settings.zoomGamma = $0 }
+                    )
+                )
+                .help("Mouse scroll zoom amount (Enter to apply)")
+            }
         }
         .frame(width: 240 * s)
     }

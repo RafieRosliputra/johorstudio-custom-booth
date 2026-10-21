@@ -31,6 +31,10 @@ struct AppSettings: Codable, Equatable {
     var mirrorOverlay = false
     var showTabPreview = true
     var countdownSeconds = 5
+    /// Zoom % per scroll step (0.5 = half a percent per notch).
+    var zoomStep = 0.5
+    /// Multiplier for mouse-wheel scroll only (touchpad is already fine).
+    var zoomGamma = 1.0
 
     init() {}
 
@@ -51,6 +55,8 @@ struct AppSettings: Codable, Equatable {
         mirrorOverlay = try c.decodeIfPresent(Bool.self, forKey: .mirrorOverlay) ?? d.mirrorOverlay
         showTabPreview = try c.decodeIfPresent(Bool.self, forKey: .showTabPreview) ?? d.showTabPreview
         countdownSeconds = try c.decodeIfPresent(Int.self, forKey: .countdownSeconds) ?? d.countdownSeconds
+        zoomStep = try c.decodeIfPresent(Double.self, forKey: .zoomStep) ?? d.zoomStep
+        zoomGamma = try c.decodeIfPresent(Double.self, forKey: .zoomGamma) ?? d.zoomGamma
     }
 
     static func load(from url: URL) -> AppSettings {
