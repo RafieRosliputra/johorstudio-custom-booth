@@ -49,9 +49,27 @@ final class AppState: ObservableObject {
     @Published private(set) var appliedGamma: Double = 1.0
     @Published private(set) var appliedRotation: Double = 0.0
 
+    /// Per-photo specific settings (override global), keyed by filename.
+    @Published private(set) var photoAdjustments: [String: PhotoAdjustment] = [:]
+    /// Copied via CMD+C for CMD+V paste.
+    private var clipboardAdjustment: PhotoAdjustment?
+
+    /// Transient toast (auto-dismisses). `toastLarge` = the 400% "sent to printer" one.
+    @Published var toast: String?
+    @Published var toastLarge = false
+    private var toastTimer: Timer?
+
     var adjustmentsDirty: Bool {
-        abs(gamma - appliedGamma) > 0.0005 || abs(rotation - appliedRotation) > 0.0005
+        abs(effectiveGamma - appliedGamma) > 0.0005 || abs(effectiveRotation - appliedRotation) > 0.0005
     }
+
+    var currentSpecific: PhotoAdjustment? {
+        guard let url = library.current else { return nil }
+        return photoAdjustments[url.lastPathComponent]
+    }
+
+    var effectiveGamma: Double { currentSpecific?.gamma ?? gamma }
+    var effectiveRotation: Double { currentSpecific?.rotation ?? rotation }
 
     let library = ImageLibrary()
     let thumbs = ThumbnailStore()
@@ -134,6 +152,7 @@ final class AppState: ObservableObject {
         loadOverlay()
         preview.setCameraFolder(cameraFolderURL)
         library.setFolder(cameraFolderURL)
+        loadPhotoSettings()
         StartupChecks.run(self)
         upload.startup()
         installDeselectMonitor()
@@ -301,9 +320,10 @@ final class AppState: ObservableObject {
 
     // MARK: - Preview
 
-    /// The photo rect actually in use: the user's frame, or the overlay's area.
+    /// The photo rect actually in use: the per-photo specific frame, else the
+    /// user's global frame, else the overlay's area.
     var effectiveFrame: PhotoFrame {
-        photoFrame ?? PhotoFrame(settings.printArea.cgRect)
+        currentSpecific?.frame ?? photoFrame ?? PhotoFrame(settings.printArea.cgRect)
     }
 
     /// 100% = photo exactly fills the overlay's photo area.
@@ -313,13 +333,37 @@ final class AppState: ObservableObject {
         return effectiveFrame.w / area.width
     }
 
+    /// Updates the frame the preview/print uses — the specific photo's frame when
+    /// it has one, otherwise the global frame.
+    func updateEffectiveFrame(_ frame: PhotoFrame) {
+        let clamped = frame.clamped()
+        if var specific = currentSpecific {
+            specific.x = clamped.x; specific.y = clamped.y; specific.w = clamped.w; specific.h = clamped.h
+            setSpecific(specific, log: false)
+        } else {
+            photoFrame = clamped
+        }
+    }
+
     /// Keep the current size but put the photo back in the middle of the area.
     func centrePhoto() {
         let area = settings.printArea.cgRect
         var frame = effectiveFrame
         frame.x = area.midX - frame.w / 2
         frame.y = area.midY - frame.h / 2
-        photoFrame = frame.clamped()
+        updateEffectiveFrame(frame)
+    }
+
+    /// Zoom badge double-click: back to 100% (fill the photo area).
+    func resetZoom() {
+        if currentSpecific != nil {
+            var specific = currentSpecific!
+            let area = settings.printArea.cgRect
+            specific.x = area.minX; specific.y = area.minY; specific.w = area.width; specific.h = area.height
+            setSpecific(specific, log: false)
+        } else {
+            photoFrame = nil
+        }
     }
 
     func refreshPreview() {
@@ -357,10 +401,12 @@ final class AppState: ObservableObject {
             previewPhoto = nil
             return
         }
-        if abs(gamma - 1.0) < 0.0005, abs(rotation) < 0.0005 {
+        let g = effectiveGamma
+        let r = effectiveRotation
+        if abs(g - 1.0) < 0.0005, abs(r) < 0.0005 {
             previewPhoto = base
         } else {
-            previewPhoto = ImageAdjust.render(base, gamma: gamma, rotation: rotation) ?? base
+            previewPhoto = ImageAdjust.render(base, gamma: g, rotation: r) ?? base
         }
         previewMessage = nil
     }
@@ -381,7 +427,7 @@ final class AppState: ObservableObject {
         if v < -180 { v += 360 }
         guard abs(v - rotation) > 0.0005 else { return }
         rotation = v
-        Log.info("rotation → \(Int(v))°")
+        Log.info("rotation → \(Self.number(v))°")
         adjustmentsChanged()
     }
 
@@ -411,6 +457,96 @@ final class AppState: ObservableObject {
         return out
     }
 
+    // MARK: - Toast
+
+    func showToast(_ text: String, large: Bool = false, duration: TimeInterval = 3) {
+        toast = text
+        toastLarge = large
+        toastTimer?.invalidate()
+        toastTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.toast = nil }
+        }
+    }
+
+    // MARK: - Per-photo specific settings
+
+    var hasSpecific: Bool { currentSpecific != nil }
+
+    /// Snapshots the current GLOBAL settings as this photo's specific settings.
+    func applyCurrentAsSpecific() {
+        guard library.current != nil else { return }
+        let adj = PhotoAdjustment.snapshot(gamma: gamma, rotation: rotation, frame: effectiveFrame)
+        setSpecific(adj)
+    }
+
+    func resetPhotoSettings() {
+        guard let url = library.current, photoAdjustments.removeValue(forKey: url.lastPathComponent) != nil else { return }
+        savePhotoSettings()
+        Log.info("photo \(url.lastPathComponent): reset to global")
+        adjustmentsChanged()
+    }
+
+    func copySettings() {
+        guard library.current != nil else { return }
+        clipboardAdjustment = PhotoAdjustment.snapshot(gamma: effectiveGamma, rotation: effectiveRotation, frame: effectiveFrame)
+        Log.info("Settings copied to clipboard")
+        showToast("Settings copied to clipboard")
+    }
+
+    func pasteSettings() {
+        guard library.current != nil, let adj = clipboardAdjustment else { return }
+        setSpecific(adj)
+    }
+
+    private func setSpecific(_ adj: PhotoAdjustment, log: Bool = true) {
+        guard let url = library.current else { return }
+        photoAdjustments[url.lastPathComponent] = adj
+        savePhotoSettings()
+        if log {
+            Log.info("photo \(url.lastPathComponent): γ\(Self.number(adj.gamma)) r\(Self.number(adj.rotation)) pan \(Int(adj.x)),\(Int(adj.y)) zoom \(Int(adj.w)),\(Int(adj.h))")
+        }
+        adjustmentsChanged()
+    }
+
+    /// Per-photo editor commit (PhotoEditDialog). Sets specific + logs.
+    func commitSpecific(_ adj: PhotoAdjustment) {
+        setSpecific(adj)
+    }
+
+    /// Manual regenerate: re-composite + overwrite the WebP (local + TrueNAS).
+    func regeneratePhoto() {
+        guard let url = library.current else { return }
+        printer.reprepareUpload(for: url)
+    }
+
+    // MARK: - Per-photo persistence (logs/photo-settings.json)
+
+    private var photoSettingsFile: URL { paths.logs.appendingPathComponent("photo-settings.json") }
+
+    func loadPhotoSettings() {
+        guard let data = try? Data(contentsOf: photoSettingsFile),
+              let root = try? JSONDecoder().decode([String: [String: PhotoAdjustment]].self, from: data) else {
+            photoAdjustments = [:]
+            return
+        }
+        photoAdjustments = root[cameraFolderURL.path] ?? [:]
+        if !photoAdjustments.isEmpty { Log.info("Loaded \(photoAdjustments.count) per-photo adjustment(s)") }
+    }
+
+    private func savePhotoSettings() {
+        var root: [String: [String: PhotoAdjustment]] = [:]
+        if let data = try? Data(contentsOf: photoSettingsFile),
+           let existing = try? JSONDecoder().decode([String: [String: PhotoAdjustment]].self, from: data) {
+            root = existing
+        }
+        root[cameraFolderURL.path] = photoAdjustments
+        do {
+            try JSONEncoder().encode(root).write(to: photoSettingsFile, options: .atomic)
+        } catch {
+            Log.error("Cannot save photo-settings.json: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Settings
 
     private func settingsChanged(from old: AppSettings) {
@@ -424,6 +560,7 @@ final class AppState: ObservableObject {
             ensureFolders()
             preview.setCameraFolder(cameraFolderURL)
             library.setFolder(cameraFolderURL)
+            loadPhotoSettings()
             upload.refreshCounts()
             refreshPreview()
         }

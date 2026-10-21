@@ -117,8 +117,8 @@ final class PrintService: ObservableObject {
         let frame = app.effectiveFrame.rect
         let compositor = app.compositor
         let hotfolder = app.hotfolderURL
-        let gamma = app.gamma
-        let rotation = app.rotation
+        let gamma = app.effectiveGamma
+        let rotation = app.effectiveRotation
 
         busy = true
         status = "Printing \(count)× \(key)…"
@@ -188,8 +188,8 @@ final class PrintService: ObservableObject {
         enqueuePrepare(app.library.files)
     }
 
-    /// Re-composites the current photo's WebP with the current gamma/rotation,
-    /// overwriting the existing one (auto re-process after an adjustment change).
+    /// Re-composites the current photo's WebP with the current effective settings,
+    /// overwriting the local copy AND the copy on TrueNAS (keeps the filename).
     func reprepareUpload(for url: URL) {
         guard let app, !reprocessing else { return }
         guard let overlay = app.overlayCI else { return }
@@ -200,11 +200,12 @@ final class PrintService: ObservableObject {
         let area = app.settings.printArea.cgRect
         let frame = app.effectiveFrame.rect
         let compositor = app.compositor
-        let gamma = app.gamma
-        let rotation = app.rotation
+        let gamma = app.effectiveGamma
+        let rotation = app.effectiveRotation
+        let remote = app.upload.remoteURL
 
         reprocessing = true
-        Log.info("Re-process \(key) → \(webpName) (gamma \(Self.num(gamma)), r \(Int(rotation))°)")
+        Log.info("Regenerate \(key) → \(webpName) (gamma \(Self.num(gamma)), r \(Int(rotation))°)")
         Task {
             if !(await FileReady.wait(url, timeout: 10)) {
                 Log.warn("\(key) may still be writing — re-processing anyway")
@@ -215,6 +216,9 @@ final class PrintService: ObservableObject {
                     let canvas = try compositor.composite(photo: url, overlay: overlay, area: area, frame: frame, gamma: gamma, rotation: rotation)
                     let webp = try ImageExport.webpData(compositor.render(canvas, size: Compositor.canvas), quality: 50)
                     try ImageExport.writeAtomically(webp, to: uploadDir.appendingPathComponent(webpName))
+                    if let remote, FileManager.default.isDirectory(remote) {
+                        try ImageExport.writeAtomically(webp, to: remote.appendingPathComponent(webpName))
+                    }
                 }
             }.value
             reprocessing = false
@@ -225,12 +229,12 @@ final class PrintService: ObservableObject {
                     history[key] = saved
                     saveHistory()
                 }
-                Log.ok("Re-processed \(webpName)")
+                Log.ok("Regenerated \(webpName)")
                 app.markAdjustmentsApplied(gamma: gamma, rotation: rotation)
                 app.upload.refreshCounts()
                 if app.upload.enabled { app.upload.syncNow() }
             case .failure(let error):
-                Log.error("Re-process failed for \(key): \(error.localizedDescription)")
+                Log.error("Regenerate failed for \(key): \(error.localizedDescription)")
             }
         }
     }
@@ -296,8 +300,8 @@ final class PrintService: ObservableObject {
         let area = app.settings.printArea.cgRect
         let frame = app.effectiveFrame.rect
         let compositor = app.compositor
-        let gamma = app.gamma
-        let rotation = app.rotation
+        let gamma = app.effectiveGamma
+        let rotation = app.effectiveRotation
 
         prepareActive = true
         Log.info("UPLOAD prep: \(key) → \(webpName)")
@@ -342,6 +346,12 @@ final class PrintService: ObservableObject {
         let upload = WorkPaths.upload(in: app.cameraFolderURL).appendingPathComponent(name)
         let done = WorkPaths.done(in: app.cameraFolderURL).appendingPathComponent(name)
         return fm.fileExists(atPath: upload.path) || fm.fileExists(atPath: done.path)
+    }
+
+    /// The generated WebP filename (with extension) for a photo, or nil if not made yet.
+    func webpName(for original: URL) -> String? {
+        guard let name = history[original.lastPathComponent]?.webp, webpFileExists(name) else { return nil }
+        return name
     }
 
     private func finish(_ result: Result<[String], Error>, key: String, count: Int, webpName: String?, gamma: Double, rotation: Double) {

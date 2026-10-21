@@ -39,10 +39,11 @@ struct Filmstrip: View {
                                 isCurrent: url == library.current,
                                 width: cellWidth,
                                 height: cellHeight,
+                                tooltip: webpTooltip(for: url),
                                 thumbs: thumbs
                             )
                             .onTapGesture { library.select(url) }
-                            .onTapGesture(count: 2) { reveal(url) }
+                            .simultaneousGesture(TapGesture(count: 2).onEnded { reveal(url) })
                             .onHover { inside in
                                 if inside {
                                     state.hovered = url.path
@@ -125,6 +126,12 @@ struct Filmstrip: View {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
+    /// Hover tooltip: the generated WebP name (with extension), else a placeholder.
+    private func webpTooltip(for url: URL) -> String {
+        if let name = app.printer.webpName(for: url) { return name }
+        return "(webp not generated)"
+    }
+
     // MARK: - Drag
 
     private var dragGesture: some Gesture {
@@ -202,6 +209,14 @@ struct Filmstrip: View {
                     guard mods.isEmpty else { return event }
                     snap(+1)
                     return nil
+                case 8: // C — CMD+C copy settings
+                    guard mods == .command else { return event }
+                    app.copySettings()
+                    return nil
+                case 9: // V — CMD+V paste settings
+                    guard mods == .command else { return event }
+                    app.pasteSettings()
+                    return nil
                 default:
                     return event
                 }
@@ -243,6 +258,7 @@ private struct ThumbCell: View {
     let isCurrent: Bool
     let width: CGFloat
     let height: CGFloat
+    let tooltip: String
     @ObservedObject var thumbs: ThumbnailStore
     @Environment(\.uiScale) private var s
 
@@ -276,17 +292,17 @@ private struct ThumbCell: View {
         )
         .overlay(alignment: .bottom) {
             Text(caption)
-                .font(.system(size: 10 * s, weight: .bold))
+                .font(.system(size: 20 * s, weight: .bold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
-                .padding(.horizontal, 4 * s)
-                .padding(.vertical, 2 * s)
+                .padding(.horizontal, 6 * s)
+                .padding(.vertical, 3 * s)
                 .background(Color.black.opacity(0.75))
-                .clipShape(RoundedRectangle(cornerRadius: 3 * s))
-                .padding(2 * s)
+                .clipShape(RoundedRectangle(cornerRadius: 4 * s))
+                .padding(3 * s)
         }
         .opacity(isCurrent ? 1 : 0.85)
-        .help(url.lastPathComponent)
+        .help(tooltip)
         .onAppear { thumbs.load(url) }
     }
 }

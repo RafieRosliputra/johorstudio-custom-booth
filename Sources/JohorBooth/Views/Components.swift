@@ -291,3 +291,46 @@ struct RightClickOnly: NSViewRepresentable {
         override func rightMouseDown(with event: NSEvent) { action() }
     }
 }
+
+/// `- Label +` with a text field underneath — used in the per-photo edit dialog.
+struct AdjustRow: View {
+    let label: String
+    let step: Double
+    @Binding var value: Double
+    @Environment(\.uiScale) private var s
+    @StateObject private var text = Box("")
+
+    var body: some View {
+        VStack(spacing: 3 * s) {
+            HStack(spacing: 8 * s) {
+                Button("-") { value = (value - step).rounded(to: step) }
+                Text(label)
+                    .font(.system(size: 12 * s, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                Button("+") { value = (value + step).rounded(to: step) }
+            }
+            TextField("", text: $text.value)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12 * s))
+                .multilineTextAlignment(.center)
+                .frame(width: 90 * s)
+                .onSubmit { if let d = Double(text.value) { value = d } }
+        }
+        .onAppear { text.value = Self.fmt(value) }
+        .onChange(of: value) { _, v in text.value = Self.fmt(v) }
+    }
+
+    private static func fmt(_ v: Double) -> String {
+        var out = String(format: "%.2f", v)
+        while out.contains("."), out.hasSuffix("0") { out.removeLast() }
+        if out.hasSuffix(".") { out.removeLast() }
+        return out
+    }
+}
+
+private extension Double {
+    /// Rounds to a multiple of `step`, avoiding float noise (0.1 steps).
+    func rounded(to step: Double) -> Double {
+        (self / step).rounded() * step
+    }
+}

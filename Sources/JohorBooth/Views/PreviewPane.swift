@@ -53,11 +53,15 @@ struct PreviewPane: View {
             .onAppear {
                 state.paneSize = geo.size
                 installScrollMonitor()
+                installKeyMonitor()
             }
             .onChange(of: geo.size) { _, size in
                 state.paneSize = size
             }
-            .onDisappear { removeScrollMonitor() }
+            .onDisappear {
+                removeScrollMonitor()
+                removeKeyMonitor()
+            }
         }
     }
 
@@ -101,7 +105,7 @@ struct PreviewPane: View {
                 var frame = start
                 frame.x += value.translation.width / k
                 frame.y += value.translation.height / k
-                app.photoFrame = frame.clamped()
+                app.updateEffectiveFrame(frame.clamped())
             }
             .onEnded { _ in state.dragStart = nil }
     }
@@ -110,13 +114,15 @@ struct PreviewPane: View {
 
     private var chrome: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 8 * s) {
+            HStack(alignment: .top, spacing: 10 * s) {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 6 * s) {
                     zoomBadge
                     if app.adjustmentsDirty { dirtyBadge }
-                    adjustmentIcons
                 }
+                globalColumn
+                Color.clear.frame(width: 12 * s)
+                perPhotoColumn
                 frameButton
             }
             Spacer()
@@ -126,24 +132,24 @@ struct PreviewPane: View {
 
     private var zoomBadge: some View {
         Text(String(format: "%.1f%%", app.photoZoom * 100))
-            .font(.system(size: 11 * s, weight: .bold, design: .rounded))
+            .font(.system(size: 12 * s, weight: .bold, design: .rounded))
             .monospacedDigit()
             .padding(.horizontal, 8 * s)
             .padding(.vertical, 4 * s)
             .background(.regularMaterial, in: Capsule())
             .contentShape(Capsule())
-            .onTapGesture(count: 2) { app.photoFrame = nil }
+            .onTapGesture(count: 2) { app.resetZoom() }
             .help("Photo size relative to the overlay's photo area — double-click to reset to 100%")
     }
 
-    /// "! old value" when the current gamma/rotation differ from what was processed.
+    /// "! old value" when the current effective gamma/rotation differ from what was processed.
     private var dirtyBadge: some View {
         let parts: [String] = [
-            abs(app.gamma - app.appliedGamma) > 0.0005 ? "γ\(Self.num(app.appliedGamma))" : nil,
-            abs(app.rotation - app.appliedRotation) > 0.0005 ? "r=\(Int(app.appliedRotation))°" : nil,
+            abs(app.effectiveGamma - app.appliedGamma) > 0.0005 ? "γ\(Self.num(app.appliedGamma))" : nil,
+            abs(app.effectiveRotation - app.appliedRotation) > 0.0005 ? "r=\(Self.num(app.appliedRotation))°" : nil,
         ].compactMap { $0 }
         return Text("! " + parts.joined(separator: " · "))
-            .font(.system(size: 10 * s, weight: .bold, design: .rounded))
+            .font(.system(size: 11 * s, weight: .bold, design: .rounded))
             .monospacedDigit()
             .foregroundStyle(.white)
             .padding(.horizontal, 7 * s)
@@ -152,8 +158,8 @@ struct PreviewPane: View {
             .help("Processed image uses the old values — will re-process")
     }
 
-    private var adjustmentIcons: some View {
-        HStack(spacing: 5 * s) {
+    private var globalColumn: some View {
+        VStack(spacing: 8 * s) {
             iconButton("sun.max", help: "Brightness gamma") { state.showGamma.toggle() }
                 .popover(isPresented: $state.showGamma) {
                     NumberPopup(icon: "sun.max", suffix: "", initialValue: app.gamma, onApply: { app.setGamma($0) }, isPresented: $state.showGamma)
@@ -166,21 +172,39 @@ struct PreviewPane: View {
                 .popover(isPresented: $state.showZoom) {
                     NumberPopup(icon: "plus.magnifyingglass", suffix: "%", initialValue: app.settings.zoomStep, onApply: { app.settings.zoomStep = $0 }, isPresented: $state.showZoom)
                 }
-            iconButton("rotate.left", help: "Rotate left 1°") { app.rotate(by: -1) }
-            iconButton("rotate.right", help: "Rotate right 1°") { app.rotate(by: 1) }
+            iconButton("rotate.left", help: "Rotate left 0.1°") { app.rotate(by: -0.1) }
+            iconButton("rotate.right", help: "Rotate right 0.1°") { app.rotate(by: 0.1) }
+            iconButton("arrow.clockwise", help: "Regenerate photo") { app.regeneratePhoto() }
         }
     }
 
-    private func iconButton(_ name: String, help: String, action: @escaping () -> Void) -> some View {
+    private var perPhotoColumn: some View {
+        VStack(spacing: 8 * s) {
+            iconButton("scope", help: "Apply specific settings to this photo", tint: app.hasSpecific ? .red : .secondary) {
+                app.applyCurrentAsSpecific()
+            }
+            iconButton("pencil", help: "Edit this photo") { state.showPhotoEdit = true }
+                .popover(isPresented: $state.showPhotoEdit) {
+                    PhotoEditDialog(isPresented: $state.showPhotoEdit)
+                        .environmentObject(app)
+                }
+            iconButton("arrow.uturn.backward", help: "Reset this photo", enabled: app.hasSpecific) {
+                app.resetPhotoSettings()
+            }
+        }
+    }
+
+    private func iconButton(_ name: String, help: String, tint: Color? = nil, enabled: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: name)
-                .font(.system(size: 11 * s, weight: .bold))
-                .foregroundStyle(.primary)
-                .frame(width: 22 * s, height: 22 * s)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6 * s))
-                .overlay(RoundedRectangle(cornerRadius: 6 * s).stroke(Color.secondary.opacity(0.35)))
+                .font(.system(size: 16 * s, weight: .bold))
+                .foregroundStyle(enabled ? (tint ?? .primary) : Color.secondary.opacity(0.35))
+                .frame(width: 40 * s, height: 40 * s)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9 * s))
+                .overlay(RoundedRectangle(cornerRadius: 9 * s).stroke(Color.secondary.opacity(0.35)))
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
         .help(help)
     }
 
@@ -196,11 +220,12 @@ struct PreviewPane: View {
             state.showFrame.toggle()
         } label: {
             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                .font(.system(size: 12 * s, weight: .bold))
-                .padding(6 * s)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7 * s))
+                .font(.system(size: 16 * s, weight: .bold))
+                .foregroundStyle(.primary)
+                .frame(width: 40 * s, height: 40 * s)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9 * s))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 7 * s)
+                    RoundedRectangle(cornerRadius: 9 * s)
                         .stroke(Color.secondary.opacity(0.35))
                 )
         }
@@ -238,6 +263,35 @@ struct PreviewPane: View {
         if let monitor = state.monitor {
             NSEvent.removeMonitor(monitor)
             state.monitor = nil
+        }
+    }
+
+    /// Q / E rotate (counterclockwise / clockwise) — only when the mouse is over
+    /// the big preview. Holding the key follows the system key-repeat rate.
+    private func installKeyMonitor() {
+        guard state.keyMonitor == nil else { return }
+        state.keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
+            MainActor.assumeIsolated { () -> NSEvent? in
+                guard state.mouse != nil, !isTyping else { return event }
+                guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty else { return event }
+                switch event.keyCode {
+                case 12: // Q — counterclockwise
+                    app.rotate(by: -0.1)
+                    return nil
+                case 14: // E — clockwise
+                    app.rotate(by: 0.1)
+                    return nil
+                default:
+                    return event
+                }
+            }
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = state.keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            state.keyMonitor = nil
         }
     }
 
@@ -281,7 +335,7 @@ struct PreviewPane: View {
         )
         let pivot = CGPoint(x: (point.x - origin.x) / k, y: (point.y - origin.y) / k)
         let factor = targetZoom / currentZoom
-        app.photoFrame = app.effectiveFrame.scaled(by: factor, around: pivot)
+        app.updateEffectiveFrame(app.effectiveFrame.scaled(by: factor, around: pivot))
         return true
     }
 }
@@ -292,14 +346,17 @@ private final class PreviewState: ObservableObject {
     @Published var showGamma = false
     @Published var showScroll = false
     @Published var showZoom = false
+    @Published var showPhotoEdit = false
 
     var mouse: CGPoint?
     var paneSize: CGSize = .zero
     var dragStart: PhotoFrame?
     var monitor: Any?
+    var keyMonitor: Any?
 
     deinit {
         if let monitor { NSEvent.removeMonitor(monitor) }
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
     }
 }
 
@@ -325,7 +382,7 @@ struct PhotoFrameEditor: View {
             }
 
             HStack(spacing: 8 * s) {
-                Button("Reset") { app.photoFrame = nil }
+                Button("Reset") { app.resetZoom() }
                     .font(.system(size: 11 * s))
                 Button("Centre") { app.centrePhoto() }
                     .font(.system(size: 11 * s))
@@ -357,8 +414,64 @@ struct PhotoFrameEditor: View {
             set: { newValue in
                 var frame = app.effectiveFrame
                 frame[keyPath: key] = newValue
-                app.photoFrame = frame.clamped()
+                app.updateEffectiveFrame(frame.clamped())
             }
         )
+    }
+}
+
+/// Vertical per-photo editor: gamma / rotation / pan / zoom with `- Label +`
+/// buttons and a text field each. OK commits (or Return), Cancel discards.
+struct PhotoEditDialog: View {
+    @EnvironmentObject var app: AppState
+    @Environment(\.uiScale) private var s
+    @Binding var isPresented: Bool
+    @StateObject private var working = Box(PhotoAdjustment(gamma: 1, rotation: 0, x: 0, y: 0, w: 0, h: 0))
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10 * s) {
+            Text("Edit this photo")
+                .font(.system(size: 14 * s, weight: .bold))
+
+            AdjustRow(label: "Gamma", step: 0.1, value: binding(\.gamma))
+            AdjustRow(label: "Rotation", step: 0.1, value: binding(\.rotation))
+            AdjustRow(label: "Pan X", step: 1, value: binding(\.x))
+            AdjustRow(label: "Pan Y", step: 1, value: binding(\.y))
+            AdjustRow(label: "Zoom W", step: 1, value: binding(\.w))
+            AdjustRow(label: "Zoom H", step: 1, value: binding(\.h))
+
+            Text("CMD+C to copy setting")
+                .font(.system(size: 10 * s))
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Button("Cancel") { isPresented = false }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("OK") { commit() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(14 * s)
+        .frame(width: 240 * s)
+        .onAppear { load() }
+    }
+
+    private func binding(_ kp: WritableKeyPath<PhotoAdjustment, Double>) -> Binding<Double> {
+        Binding(
+            get: { working.value[keyPath: kp] },
+            set: { working.value[keyPath: kp] = $0 }
+        )
+    }
+
+    private func load() {
+        let base = app.currentSpecific
+            ?? PhotoAdjustment.snapshot(gamma: app.effectiveGamma, rotation: app.effectiveRotation, frame: app.effectiveFrame)
+        working.value = base
+    }
+
+    private func commit() {
+        app.commitSpecific(working.value)
+        isPresented = false
     }
 }

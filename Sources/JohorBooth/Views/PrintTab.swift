@@ -9,7 +9,6 @@ struct PrintTab: View {
     @StateObject private var copiesText = Box("")
     @StateObject private var showArea = Box(false)
     @StateObject private var actionLog = Box("—")
-    @StateObject private var toast = Box<String?>(nil)
     @StateObject private var pendingPrint = Box<Int?>(nil)
     @StateObject private var monitors = PrintTabMonitors()
     @Environment(\.uiScale) private var s
@@ -27,7 +26,7 @@ struct PrintTab: View {
         guard canSend else { return }
         printer.printCopies(n)
         actionLog.value = "SENT TO PRINTER \(n) COPIES"
-        showToast("SENT TO PRINTER \(n) COPIES")
+        app.showToast("SENT TO PRINTER \(n) COPIES", large: true)
     }
 
     /// White box + PRINT: 6–20 copies only, confirmed with OK/Cancel.
@@ -36,7 +35,7 @@ struct PrintTab: View {
         guard let n = Int(copiesText.value), n > 0 else { return }
         if n <= 5 {
             actionLog.value = "USE BUTTONS 1–5 FOR 1 TO 5 COPIES"
-            showToast("USE BUTTONS 1–5")
+            app.showToast("USE BUTTONS 1–5")
             return
         }
         pendingPrint.value = n
@@ -48,22 +47,13 @@ struct PrintTab: View {
         printer.printCopies(n)
         copiesText.value = ""
         actionLog.value = "CUSTOM PRINT SENT"
-        showToast("CUSTOM PRINT SENT")
+        app.showToast("CUSTOM PRINT SENT", large: true)
     }
 
     private func sanitizeCopies() {
         let digits = copiesText.value.filter(\.isNumber)
         let target = Int(digits).map { String(min($0, 20)) } ?? ""
         if copiesText.value != target { copiesText.value = target }
-    }
-
-    private func showToast(_ text: String) {
-        toast.value = text
-        monitors.toastTimer?.invalidate()
-        let box = toast
-        monitors.toastTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in
-            Task { @MainActor in box.value = nil }
-        }
     }
 
     var body: some View {
@@ -85,19 +75,19 @@ struct PrintTab: View {
             }
             .padding(24 * s)
 
-            if let text = toast.value {
+            if let text = app.toast {
                 Text(text)
-                    .font(.system(size: 24 * s, weight: .bold))
+                    .font(.system(size: (app.toastLarge ? 64 : 24) * s, weight: .bold))
                     .foregroundStyle(.black)
-                    .padding(.horizontal, 24 * s)
-                    .padding(.vertical, 14 * s)
+                    .padding(.horizontal, (app.toastLarge ? 40 : 24) * s)
+                    .padding(.vertical, (app.toastLarge ? 26 : 14) * s)
                     .background(Capsule().fill(Color.green))
-                    .shadow(radius: 8 * s)
+                    .shadow(radius: (app.toastLarge ? 14 : 8) * s)
                     .padding(.top, 14 * s)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: toast.value)
+        .animation(.easeInOut(duration: 0.2), value: app.toast)
         .onAppear {
             app.capture.addClient("print")
             installMonitors()
@@ -105,7 +95,6 @@ struct PrintTab: View {
         .onDisappear {
             app.capture.removeClient("print")
             removeMonitors()
-            monitors.toastTimer?.invalidate()
         }
         .alert(
             "Print copies?",
@@ -280,7 +269,6 @@ struct PrintTab: View {
 @MainActor
 private final class PrintTabMonitors: ObservableObject {
     var key: Any?
-    var toastTimer: Timer?
 
     deinit {
         if let key { NSEvent.removeMonitor(key) }
