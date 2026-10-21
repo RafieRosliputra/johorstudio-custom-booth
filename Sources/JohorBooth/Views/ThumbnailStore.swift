@@ -8,6 +8,9 @@ final class ThumbnailStore: ObservableObject {
     /// Paths that finished decoding — the published bit that redraws the strip.
     @Published private(set) var loaded: Set<String> = []
 
+    /// Prefer the 2000px preview copy over the 42MP original (set by AppState).
+    weak var preview: PreviewStore?
+
     private let cache = NSCache<NSString, CGImage>()
     private var loading = Set<String>()
     private let queue = DispatchQueue(
@@ -28,8 +31,9 @@ final class ThumbnailStore: ObservableObject {
         let key = url.path
         guard cache.object(forKey: key as NSString) == nil, !loading.contains(key) else { return }
         loading.insert(key)
+        let source = previewSource(for: url)
         queue.async {
-            let image = ImageDecode.downsampled(url, maxPixel: ImageDecode.thumbnailPixel)
+            let image = ImageDecode.downsampled(source, maxPixel: ImageDecode.thumbnailPixel)
             Task { @MainActor in
                 self.loading.remove(key)
                 guard let image else { return }
@@ -37,5 +41,13 @@ final class ThumbnailStore: ObservableObject {
                 self.loaded.insert(key)
             }
         }
+    }
+
+    /// The small preview copy when it exists, else the original.
+    private func previewSource(for url: URL) -> URL {
+        if let p = preview?.previewURL(for: url), FileManager.default.fileExists(atPath: p.path) {
+            return p
+        }
+        return url
     }
 }

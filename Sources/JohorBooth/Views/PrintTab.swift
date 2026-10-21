@@ -6,46 +6,119 @@ struct PrintTab: View {
     @ObservedObject var library: ImageLibrary
     @ObservedObject var printer: PrintService
 
-    @StateObject private var copiesText = Box("0")
+    @StateObject private var copiesText = Box("")
     @StateObject private var showArea = Box(false)
-    @StateObject private var confirmPurge = Box(false)
+    @StateObject private var actionLog = Box("—")
+    @StateObject private var toast = Box<String?>(nil)
+    @StateObject private var pendingPrint = Box<Int?>(nil)
+    @StateObject private var monitors = PrintTabMonitors()
     @Environment(\.uiScale) private var s
 
-    /// Upload does not need the hotfolder.
-    private var canPrint: Bool {
-        app.detailsLoaded && library.current != nil && !printer.busy
+    /// Printing still needs the details + a loaded image; a busy printer just
+    /// queues the job, so the buttons stay enabled.
+    private var canSend: Bool {
+        app.detailsLoaded && library.current != nil
     }
 
-    private func tapDigit(_ n: Int) {
-        let current = Int(copiesText.value) ?? 0
-        copiesText.value = String(min(current * 10 + n, 20))
-    }
+    // MARK: - Actions
 
-    private func printNow() {
-        guard let n = Int(copiesText.value), n > 0 else { return }
+    /// Buttons 1–5: send straight away, no popup.
+    private func quickPrint(_ n: Int) {
+        guard canSend else { return }
         printer.printCopies(n)
-        copiesText.value = "0"
+        actionLog.value = "SENT TO PRINTER \(n) COPIES"
+        showToast("SENT TO PRINTER \(n) COPIES")
+    }
+
+    /// White box + PRINT: 6–20 copies only, confirmed with OK/Cancel.
+    private func requestCustomPrint() {
+        guard canSend else { return }
+        guard let n = Int(copiesText.value), n > 0 else { return }
+        if n <= 5 {
+            actionLog.value = "USE BUTTONS 1–5 FOR 1 TO 5 COPIES"
+            showToast("USE BUTTONS 1–5")
+            return
+        }
+        pendingPrint.value = n
+    }
+
+    private func confirmCustomPrint() {
+        guard let n = pendingPrint.value else { return }
+        pendingPrint.value = nil
+        printer.printCopies(n)
+        copiesText.value = ""
+        actionLog.value = "CUSTOM PRINT SENT"
+        showToast("CUSTOM PRINT SENT")
+    }
+
+    private func sanitizeCopies() {
+        let digits = copiesText.value.filter(\.isNumber)
+        let target = Int(digits).map { String(min($0, 20)) } ?? ""
+        if copiesText.value != target { copiesText.value = target }
+    }
+
+    private func showToast(_ text: String) {
+        toast.value = text
+        monitors.toastTimer?.invalidate()
+        let box = toast
+        monitors.toastTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in
+            Task { @MainActor in box.value = nil }
+        }
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 24 * s) {
-            VStack(spacing: 8 * s) {
-                PreviewPane()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Filmstrip(library: library, thumbs: app.thumbs)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            VStack(spacing: 10 * s) {
-                ScrollView(.vertical, showsIndicators: false) {
-                    panel
+        ZStack(alignment: .top) {
+            HStack(alignment: .top, spacing: 24 * s) {
+                VStack(spacing: 8 * s) {
+                    PreviewPane()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Filmstrip(library: library, thumbs: app.thumbs)
                 }
-                purgeButton
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 10 * s) {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        panel
+                    }
+                    purgeButton
+                }
+                .frame(width: 340 * s)
             }
-            .frame(width: 340 * s)
+            .padding(24 * s)
+
+            if let text = toast.value {
+                Text(text)
+                    .font(.system(size: 16 * s, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18 * s)
+                    .padding(.vertical, 10 * s)
+                    .background(Capsule().fill(Color.green))
+                    .shadow(radius: 6 * s)
+                    .padding(.top, 14 * s)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
-        .padding(24 * s)
-        .onAppear { app.capture.addClient("print") }
-        .onDisappear { app.capture.removeClient("print") }
+        .animation(.easeInOut(duration: 0.2), value: toast.value)
+        .onAppear {
+            app.capture.addClient("print")
+            installMonitors()
+        }
+        .onDisappear {
+            app.capture.removeClient("print")
+            removeMonitors()
+            monitors.toastTimer?.invalidate()
+        }
+        .alert(
+            "Print copies?",
+            isPresented: Binding(
+                get: { pendingPrint.value != nil },
+                set: { if !$0 { pendingPrint.value = nil } }
+            )
+        ) {
+            Button("OK") { confirmCustomPrint() }
+            Button("Cancel", role: .cancel) { pendingPrint.value = nil }
+        } message: {
+            Text("\(pendingPrint.value ?? 0) copies will be sent to the printer.\nPress Space to confirm, Esc to cancel.")
+        }
     }
 
     private var panel: some View {
@@ -88,33 +161,47 @@ struct PrintTab: View {
                 Button("PREV") { library.prev() }
                     .buttonStyle(PanelButtonStyle())
                     .disabled(!library.canPrev)
-                    .keyboardShortcut(.leftArrow, modifiers: [])
                 Button("NEXT") { library.next() }
                     .buttonStyle(PanelButtonStyle())
                     .disabled(!library.canNext)
-                    .keyboardShortcut(.rightArrow, modifiers: [])
             }
 
+            // ---- PRINT, COPIES ----
             Text("PRINT, COPIES")
-                .font(.system(size: 15 * s, weight: .bold))
+                .font(.system(size: 22 * s, weight: .bold))
                 .padding(.top, 16 * s)
 
-            // Custom print count: digits 1–0 build the number, PRINT runs it,
-            // then the count resets to 0. Outlined so it stays apart from COPY.
-            VStack(spacing: 8 * s) {
-                HStack(spacing: 4 * s) {
-                    ForEach(1...9, id: \.self) { n in
-                        Button("\(n)") { tapDigit(n) }
-                            .buttonStyle(PanelButtonStyle(compact: true))
-                            .disabled(!canPrint)
-                    }
-                    Button("0") { tapDigit(0) }
-                        .buttonStyle(PanelButtonStyle(compact: true))
-                        .disabled(!canPrint)
+            Text(actionLog.value)
+                .font(.system(size: 13 * s, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // 1–5 quick copy buttons — send immediately, no popup.
+            HStack(spacing: 8 * s) {
+                ForEach(1...5, id: \.self) { n in
+                    Button("\(n)") { quickPrint(n) }
+                        .buttonStyle(PanelButtonStyle(prominent: true))
+                        .disabled(!canSend)
                 }
-                Button("PRINT") { printNow() }
-                    .buttonStyle(PanelButtonStyle(prominent: true, compact: true))
-                    .disabled(!canPrint || (Int(copiesText.value) ?? 0) < 1)
+            }
+
+            // Custom count (6–20) + PRINT, in their own outlined box.
+            VStack(spacing: 8 * s) {
+                TextField("6–20", text: $copiesText.value)
+                    .font(.system(size: 28 * s, weight: .bold))
+                    .foregroundStyle(.black)
+                    .multilineTextAlignment(.center)
+                    .textFieldStyle(.plain)
+                    .padding(.vertical, 6 * s)
+                    .padding(.horizontal, 8 * s)
+                    .background(RoundedRectangle(cornerRadius: 8 * s).fill(Color.white))
+                    .overlay(RoundedRectangle(cornerRadius: 8 * s).stroke(Color.secondary.opacity(0.5)))
+                    .onChange(of: copiesText.value) { _, _ in sanitizeCopies() }
+                Button("PRINT") { requestCustomPrint() }
+                    .buttonStyle(PanelButtonStyle(prominent: true))
+                    .disabled(!canSend)
             }
             .padding(10 * s)
             .overlay(
@@ -154,15 +241,73 @@ struct PrintTab: View {
         }
     }
 
+    /// Left-click purges (no confirmation), right-click opens the printer queue.
     private var purgeButton: some View {
-        Button("PURGE PRINT QUEUE") { confirmPurge.value = true }
+        Button("PURGE PRINT QUEUE") { app.purgePrintQueue() }
             .buttonStyle(PanelButtonStyle(destructive: true))
-            .help("Remove all jobs from the default printer's queue")
-            .alert("Caution", isPresented: $confirmPurge.value) {
-                Button("Purge all jobs", role: .destructive) { app.purgePrintQueue() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Purge all printer job (remove all print queue)?\n\nEvery job on the default printer will be removed and will NOT print. This cannot be undone.")
+            .help("Remove all jobs from the default printer's queue (right-click to view the queue)")
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { monitors.purgeRect = geo.frame(in: .global) }
+                        .onChange(of: geo.frame(in: .global)) { _, r in monitors.purgeRect = r }
+                }
+            )
+    }
+
+    // MARK: - Key / right-click monitors
+
+    private func installMonitors() {
+        // Space = OK, Esc = Cancel while the custom-print popup is up.
+        if monitors.key == nil {
+            monitors.key = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
+                MainActor.assumeIsolated { () -> NSEvent? in
+                    guard pendingPrint.value != nil else { return event }
+                    let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                    if event.keyCode == 49, mods.isEmpty {
+                        confirmCustomPrint()
+                        return nil
+                    }
+                    if event.keyCode == 53, mods.isEmpty {
+                        pendingPrint.value = nil
+                        return nil
+                    }
+                    return event
+                }
             }
+        }
+        // Right-click on PURGE opens the default printer queue.
+        if monitors.right == nil {
+            monitors.right = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown]) { event in
+                MainActor.assumeIsolated { () -> NSEvent? in
+                    guard let window = event.window, let content = window.contentView else { return event }
+                    let p = event.locationInWindow
+                    let point = CGPoint(x: p.x, y: content.bounds.height - p.y)
+                    if monitors.purgeRect.contains(point) {
+                        PrinterQueue.openQueueWindow()
+                        return nil
+                    }
+                    return event
+                }
+            }
+        }
+    }
+
+    private func removeMonitors() {
+        if let key = monitors.key { NSEvent.removeMonitor(key); monitors.key = nil }
+        if let right = monitors.right { NSEvent.removeMonitor(right); monitors.right = nil }
+    }
+}
+
+@MainActor
+private final class PrintTabMonitors: ObservableObject {
+    var key: Any?
+    var right: Any?
+    var purgeRect: CGRect = .zero
+    var toastTimer: Timer?
+
+    deinit {
+        if let key { NSEvent.removeMonitor(key) }
+        if let right { NSEvent.removeMonitor(right) }
     }
 }

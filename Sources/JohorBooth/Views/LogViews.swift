@@ -24,6 +24,7 @@ struct LogTab: View {
 
 struct LogView: View {
     let inWindow: Bool
+    @EnvironmentObject private var app: AppState
     @ObservedObject private var store = LogStore.shared
     @Environment(\.openWindow) private var openWindow
     @StateObject private var follow = Box(true)
@@ -49,6 +50,10 @@ struct LogView: View {
                 Button("Open log folder") {
                     if let folder = store.folder { NSWorkspace.shared.open(folder) }
                 }
+                Button("Rebuild previews") {
+                    app.preview.rebuildAll()
+                }
+                .help("Regenerate every 2000px preview copy in camera/preview")
                 if !inWindow {
                     Button {
                         openWindow(id: "log")

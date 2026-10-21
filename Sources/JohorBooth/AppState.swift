@@ -42,6 +42,7 @@ final class AppState: ObservableObject {
 
     let library = ImageLibrary()
     let thumbs = ThumbnailStore()
+    let preview = PreviewStore()
     let compositor = Compositor()
     let capture = CaptureManager()
     let printer: PrintService
@@ -65,6 +66,8 @@ final class AppState: ObservableObject {
         printer.app = self
         upload.app = self
         screen.app = self
+        preview.app = self
+        thumbs.preview = preview
         printer.loadHistory(paths.historyFile)
 
         // Keep the Mac (and displays) awake for the whole event.
@@ -89,6 +92,13 @@ final class AppState: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+        // Backfill + keep up: every livefolder photo gets a 2000px preview copy.
+        library.$files
+            .removeDuplicates()
+            .sink { [weak self] files in
+                self?.preview.prepareAll(files)
+            }
+            .store(in: &cancellables)
         library.newImageReady
             .sink { [weak self] url in
                 Task { @MainActor in
@@ -106,6 +116,7 @@ final class AppState: ObservableObject {
         started = true
         ensureFolders()
         loadOverlay()
+        preview.setCameraFolder(cameraFolderURL)
         library.setFolder(cameraFolderURL)
         StartupChecks.run(self)
         upload.startup()
@@ -289,23 +300,15 @@ final class AppState: ObservableObject {
         }
         Task {
             _ = await FileReady.wait(url, timeout: 10)
-            let result = await Task.detached(priority: .userInitiated) { () -> Result<CGImage, Error> in
-                Result {
-                    guard let image = ImageDecode.downsampled(url, maxPixel: ImageDecode.previewPixel) else {
-                        throw BoothError.cannotRead(url.lastPathComponent)
-                    }
-                    return image
-                }
-            }.value
+            let image = await preview.previewImage(for: url)
             guard generation == previewGeneration else { return }
-            switch result {
-            case .success(let image):
+            if let image {
                 previewPhoto = image
                 previewMessage = nil
-            case .failure(let error):
+            } else {
                 previewPhoto = nil
                 previewMessage = "Cannot load \(url.lastPathComponent)"
-                Log.error("Preview failed for \(url.lastPathComponent): \(error.localizedDescription)")
+                Log.error("Preview failed for \(url.lastPathComponent)")
             }
         }
     }
@@ -321,6 +324,7 @@ final class AppState: ObservableObject {
         settings.save(to: paths.settingsFile)
         if settings.cameraFolder != old.cameraFolder {
             ensureFolders()
+            preview.setCameraFolder(cameraFolderURL)
             library.setFolder(cameraFolderURL)
             upload.refreshCounts()
             refreshPreview()

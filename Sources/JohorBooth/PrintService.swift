@@ -25,6 +25,8 @@ final class PrintService: ObservableObject {
     private var historyURL: URL?
     private var prepareQueue: [URL] = []
     private var prepareActive = false
+    /// PRINT jobs waiting for a busy printer to finish (photo, copies).
+    private var printQueue: [(URL, Int)] = []
 
     private static let nameFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -67,8 +69,11 @@ final class PrintService: ObservableObject {
 
     /// Saves `copies` JPGs (1800×1200) to the hotfolder, then the 2500×1667 WebP
     /// to DIRECTORY/upload the first time this photo is printed.
+    ///
+    /// If the printer is busy, the job is queued and runs when the current one
+    /// finishes — the operator can keep sending without losing a print.
     func printCopies(_ copies: Int) {
-        guard let app, !busy else { return }
+        guard let app else { return }
         guard let overlay = app.overlayCI else {
             app.showAlert(title: "Cannot print", message: "details not loaded — select an overlay first.")
             return
@@ -83,6 +88,18 @@ final class PrintService: ObservableObject {
             return
         }
         let count = max(1, min(20, copies))
+        if busy {
+            printQueue.append((source, count))
+            status = "Queued \(count) cop\(count == 1 ? "y" : "ies") of \(source.lastPathComponent)"
+            Log.info("PRINT queued \(count)× \(source.lastPathComponent) — printer busy")
+            return
+        }
+        startPrint(source: source, count: count)
+    }
+
+    /// The actual composite + write, for one (photo, count). `busy` must be false.
+    private func startPrint(source: URL, count: Int) {
+        guard let app, let overlay = app.overlayCI else { return }
         let key = source.lastPathComponent
         var record = history[key] ?? newRecord(for: source)
         let first = record.copies + 1
@@ -97,12 +114,19 @@ final class PrintService: ObservableObject {
         let area = app.settings.printArea.cgRect
         let frame = app.effectiveFrame.rect
         let compositor = app.compositor
+        let hotfolder = app.hotfolderURL
 
         busy = true
         status = "Printing \(count)× \(key)…"
         Log.info("PRINT \(count) cop\(count == 1 ? "y" : "ies") of \(key) → COPY-\(first)…\(first + count - 1)")
 
         Task {
+            guard let hotfolder else {
+                Log.error("PRINT: hotfolder missing for \(key)")
+                busy = false
+                pumpPrintQueue()
+                return
+            }
             if !(await FileReady.wait(source, timeout: 10)) {
                 Log.warn("\(key) may still be writing — printing anyway")
             }
@@ -274,5 +298,13 @@ final class PrintService: ObservableObject {
             Log.error("PRINT failed for \(key): \(error.localizedDescription)")
             app?.showAlert(title: "Print failed", message: "\(key)\n\(error.localizedDescription)")
         }
+        pumpPrintQueue()
+    }
+
+    /// Runs the next queued PRINT job, if any (the printer just went idle).
+    private func pumpPrintQueue() {
+        guard !printQueue.isEmpty, !busy else { return }
+        let next = printQueue.removeFirst()
+        startPrint(source: next.0, count: next.1)
     }
 }

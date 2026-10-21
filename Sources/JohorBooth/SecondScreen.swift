@@ -53,7 +53,7 @@ final class SecondScreenController: ObservableObject {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: ImageDecode.previewPixel,
+            kCGImageSourceThumbnailMaxPixelSize: ImageDecode.screenPixel,
         ]
         return CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary)
     }

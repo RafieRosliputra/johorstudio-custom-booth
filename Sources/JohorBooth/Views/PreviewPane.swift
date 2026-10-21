@@ -127,13 +127,15 @@ struct PreviewPane: View {
     }
 
     private var zoomBadge: some View {
-        Text(String(format: "%.0f%%", app.photoZoom * 100))
+        Text(String(format: "%.1f%%", app.photoZoom * 100))
             .font(.system(size: 11 * s, weight: .bold, design: .rounded))
             .monospacedDigit()
             .padding(.horizontal, 8 * s)
             .padding(.vertical, 4 * s)
             .background(.regularMaterial, in: Capsule())
-            .help("Photo size relative to the overlay's photo area")
+            .contentShape(Capsule())
+            .onTapGesture(count: 2) { app.photoFrame = nil }
+            .help("Photo size relative to the overlay's photo area — double-click to reset to 100%")
     }
 
     private var frameButton: some View {
@@ -192,14 +194,32 @@ struct PreviewPane: View {
         guard let point = state.mouse, state.paneSize.width > 1 else { return false }
         let k = scale(for: state.paneSize)
         guard k > 0 else { return false }
+        let dy = event.scrollingDeltaY
+        guard dy != 0 else { return false }
+
+        // One step = 0.5%. A mouse-wheel notch is one step; a trackpad gesture maps
+        // its pixel delta to steps (10 px = one 0.5% step). Scroll up = zoom in.
+        let stepCount: Double
+        if event.hasPreciseScrollingDeltas {
+            stepCount = Double(dy) / 10.0
+        } else {
+            stepCount = dy > 0 ? -1 : 1
+        }
+        let area = app.settings.printArea.cgRect
+        guard area.width > 0 else { return false }
+        let currentZoom = app.effectiveFrame.w / area.width
+        guard currentZoom > 0 else { return false }
+
+        // Clamp to 10% – 600% of the overlay's photo area.
+        let targetZoom = min(6.0, max(0.1, currentZoom * pow(1.005, stepCount)))
+        guard abs(targetZoom - currentZoom) > 0.0001 else { return true }
+
         let origin = CGPoint(
             x: (state.paneSize.width - canvas.width * k) / 2,
             y: (state.paneSize.height - canvas.height * k) / 2
         )
         let pivot = CGPoint(x: (point.x - origin.x) / k, y: (point.y - origin.y) / k)
-        let delta = max(-50, min(50, event.scrollingDeltaY))
-        guard delta != 0 else { return false }
-        let factor = exp(-Double(delta) * 0.012)
+        let factor = targetZoom / currentZoom
         app.photoFrame = app.effectiveFrame.scaled(by: factor, around: pivot)
         return true
     }

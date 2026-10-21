@@ -9,8 +9,10 @@ import ImageIO
 /// asked for a downsampled thumbnail instead — same picture, a fraction of the
 /// work.
 enum ImageDecode {
-    /// Big preview and 2nd screen.
-    static let previewPixel = 1500
+    /// Big preview: the 2000px pre-resized copies live in camera/preview.
+    static let previewPixel = 2000
+    /// 2nd screen (1920×1080) display image.
+    static let screenPixel = 1500
     /// Filmstrip cells.
     static let thumbnailPixel = 320
 

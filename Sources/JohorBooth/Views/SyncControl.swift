@@ -29,15 +29,11 @@ struct SyncControl: View {
         if !upload.connected {
             return upload.checking ? "checking connection…" : "not connected"
         }
-        if let speed = upload.speedText {
-            let total = upload.filesTotal
-            let done = upload.filesDone
-            return "\(speed) · \(done)/\(total) file"
-        }
         if remaining > 0 {
-            return "\(remaining) file\(remaining == 1 ? "" : "s") remaining"
+            return "uploading · \(remaining) remaining"
         }
-        return upload.enabled ? "in sync" : "connected"
+        let n = app.library.files.count
+        return n == 0 ? "connected, nothing to sync" : "connected, in-synced \(n) files"
     }
 
     var body: some View {

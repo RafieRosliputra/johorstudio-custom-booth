@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 struct PrinterQueueError: LocalizedError {
     let message: String
@@ -12,6 +13,15 @@ enum PrinterQueue {
         guard out.status == 0, let range = out.text.range(of: "destination: ") else { return nil }
         let name = out.text[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? nil : name
+    }
+
+    /// The default printer's queue list, in the default browser. macOS has no
+    /// public deep-link to the "Printer Queue…" window, so open the CUPS jobs
+    /// page — the same queue System Settings shows.
+    static func openQueueWindow() {
+        if let url = URL(string: "http://localhost:631/jobs/") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     static func jobCount(_ printer: String) -> Int {
