@@ -27,6 +27,8 @@ final class PrintService: ObservableObject {
     private var prepareActive = false
     /// PRINT jobs waiting for a busy printer to finish (photo, copies).
     private var printQueue: [(URL, Int)] = []
+    /// True while a gamma/rotation re-process is running (independent of `busy`).
+    private var reprocessing = false
 
     private static let nameFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -115,6 +117,8 @@ final class PrintService: ObservableObject {
         let frame = app.effectiveFrame.rect
         let compositor = app.compositor
         let hotfolder = app.hotfolderURL
+        let gamma = app.gamma
+        let rotation = app.rotation
 
         busy = true
         status = "Printing \(count)× \(key)…"
@@ -133,7 +137,7 @@ final class PrintService: ObservableObject {
             let result = await Task.detached(priority: .userInitiated) { () -> Result<[String], Error> in
                 Result { () throws -> [String] in
                     let fm = FileManager.default
-                    let canvas = try compositor.composite(photo: source, overlay: overlay, area: area, frame: frame)
+                    let canvas = try compositor.composite(photo: source, overlay: overlay, area: area, frame: frame, gamma: gamma, rotation: rotation)
                     let jpg = try ImageExport.jpegData(compositor.render(canvas, size: Compositor.printSize))
                     var written: [String] = []
                     for n in first..<(first + count) {
@@ -151,7 +155,7 @@ final class PrintService: ObservableObject {
                     return written
                 }
             }.value
-            finish(result, key: key, count: count, webpName: webpName)
+            finish(result, key: key, count: count, webpName: webpName, gamma: gamma, rotation: rotation)
         }
     }
 
@@ -182,6 +186,60 @@ final class PrintService: ObservableObject {
     func prepareAllMissing() {
         guard let app else { return }
         enqueuePrepare(app.library.files)
+    }
+
+    /// Re-composites the current photo's WebP with the current gamma/rotation,
+    /// overwriting the existing one (auto re-process after an adjustment change).
+    func reprepareUpload(for url: URL) {
+        guard let app, !reprocessing else { return }
+        guard let overlay = app.overlayCI else { return }
+        let key = url.lastPathComponent
+        var record = history[key] ?? newRecord(for: url)
+        let webpName = record.webp ?? "\(record.base)-\(record.suffix).webp"
+        let uploadDir = WorkPaths.upload(in: app.cameraFolderURL)
+        let area = app.settings.printArea.cgRect
+        let frame = app.effectiveFrame.rect
+        let compositor = app.compositor
+        let gamma = app.gamma
+        let rotation = app.rotation
+
+        reprocessing = true
+        Log.info("Re-process \(key) → \(webpName) (gamma \(Self.num(gamma)), r \(Int(rotation))°)")
+        Task {
+            if !(await FileReady.wait(url, timeout: 10)) {
+                Log.warn("\(key) may still be writing — re-processing anyway")
+            }
+            let result = await Task.detached(priority: .utility) { () -> Result<Void, Error> in
+                Result {
+                    try FileManager.default.ensureDirectory(uploadDir)
+                    let canvas = try compositor.composite(photo: url, overlay: overlay, area: area, frame: frame, gamma: gamma, rotation: rotation)
+                    let webp = try ImageExport.webpData(compositor.render(canvas, size: Compositor.canvas), quality: 50)
+                    try ImageExport.writeAtomically(webp, to: uploadDir.appendingPathComponent(webpName))
+                }
+            }.value
+            reprocessing = false
+            switch result {
+            case .success:
+                if var saved = history[key] {
+                    saved.webp = webpName
+                    history[key] = saved
+                    saveHistory()
+                }
+                Log.ok("Re-processed \(webpName)")
+                app.markAdjustmentsApplied(gamma: gamma, rotation: rotation)
+                app.upload.refreshCounts()
+                if app.upload.enabled { app.upload.syncNow() }
+            case .failure(let error):
+                Log.error("Re-process failed for \(key): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private static func num(_ v: Double) -> String {
+        var out = String(format: "%.2f", v)
+        while out.contains("."), out.hasSuffix("0") { out.removeLast() }
+        if out.hasSuffix(".") { out.removeLast() }
+        return out
     }
 
     /// Re-counts livefolder photos that still have no WebP (drives the SYNC panel).
@@ -238,6 +296,8 @@ final class PrintService: ObservableObject {
         let area = app.settings.printArea.cgRect
         let frame = app.effectiveFrame.rect
         let compositor = app.compositor
+        let gamma = app.gamma
+        let rotation = app.rotation
 
         prepareActive = true
         Log.info("UPLOAD prep: \(key) → \(webpName)")
@@ -248,7 +308,7 @@ final class PrintService: ObservableObject {
             let result = await Task.detached(priority: .utility) { () -> Result<Void, Error> in
                 Result {
                     try FileManager.default.ensureDirectory(uploadDir)
-                    let canvas = try compositor.composite(photo: source, overlay: overlay, area: area, frame: frame)
+                    let canvas = try compositor.composite(photo: source, overlay: overlay, area: area, frame: frame, gamma: gamma, rotation: rotation)
                     let webp = try ImageExport.webpData(compositor.render(canvas, size: Compositor.canvas), quality: 50)
                     try ImageExport.writeAtomically(webp, to: uploadDir.appendingPathComponent(webpName))
                 }
@@ -262,6 +322,9 @@ final class PrintService: ObservableObject {
                     saveHistory()
                 }
                 Log.ok("Prepared \(webpName) for TrueNAS")
+                if source == app.library.current {
+                    app.markAdjustmentsApplied(gamma: gamma, rotation: rotation)
+                }
                 refreshUnsynced()
                 app.upload.refreshCounts()
                 if app.upload.enabled { app.upload.syncNow() }
@@ -281,7 +344,7 @@ final class PrintService: ObservableObject {
         return fm.fileExists(atPath: upload.path) || fm.fileExists(atPath: done.path)
     }
 
-    private func finish(_ result: Result<[String], Error>, key: String, count: Int, webpName: String?) {
+    private func finish(_ result: Result<[String], Error>, key: String, count: Int, webpName: String?, gamma: Double, rotation: Double) {
         busy = false
         switch result {
         case .success(let names):
@@ -292,6 +355,7 @@ final class PrintService: ObservableObject {
                 saveHistory()
                 app?.upload.syncNow()
             }
+            app?.markAdjustmentsApplied(gamma: gamma, rotation: rotation)
             status = "Saved \(count) cop\(count == 1 ? "y" : "ies") of \(key)"
         case .failure(let error):
             status = "Print failed: \(error.localizedDescription)"

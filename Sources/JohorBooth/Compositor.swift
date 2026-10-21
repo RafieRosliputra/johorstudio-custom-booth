@@ -22,8 +22,10 @@ final class Compositor {
     }
 
     /// `area` is the overlay's photo window; `frame` (top-left canvas pixels) overrides it
-    /// when the operator zoomed or dragged the photo.
-    func composite(photo url: URL, overlay: CIImage?, area: CGRect, frame: CGRect? = nil) throws -> CIImage {
+    /// when the operator zoomed or dragged the photo. `gamma` is the brightness curve
+    /// (1.0 = none), `rotation` is degrees (clockwise, 0 = none) — both applied to the
+    /// photo only, before it is scaled to cover the frame.
+    func composite(photo url: URL, overlay: CIImage?, area: CGRect, frame: CGRect? = nil, gamma: Double = 1.0, rotation: Double = 0) throws -> CIImage {
         guard var photo = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else {
             throw BoothError.cannotRead(url.lastPathComponent)
         }
@@ -31,6 +33,14 @@ final class Compositor {
         let source = frame ?? area
         // Core Image is bottom-left based.
         let target = CGRect(x: source.minX, y: Self.canvas.height - source.maxY, width: source.width, height: source.height)
+
+        if abs(gamma - 1) > 0.0005 {
+            photo = photo.applyingFilter("CIGammaAdjust", parameters: ["inputPower": gamma])
+        }
+        // Rotation pivot is irrelevant: we translate to origin + cover-crop below.
+        if abs(rotation) > 0.0005 {
+            photo = photo.transformed(by: CGAffineTransform(rotationAngle: rotation * .pi / 180))
+        }
 
         photo = photo.transformed(by: CGAffineTransform(translationX: -photo.extent.minX, y: -photo.extent.minY))
         let scale = max(target.width / photo.extent.width, target.height / photo.extent.height)

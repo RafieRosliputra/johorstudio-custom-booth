@@ -203,3 +203,91 @@ struct NumberCommitField: View {
         return out
     }
 }
+
+/// A small popup to enter one number — OK applies (or press Enter), Cancel dismisses.
+struct NumberPopup: View {
+    let icon: String
+    let suffix: String
+    let initialValue: Double
+    var onApply: (Double) -> Void
+    @Binding var isPresented: Bool
+    @Environment(\.uiScale) private var s
+    @StateObject private var text = Box("")
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(spacing: 10 * s) {
+            HStack(spacing: 6 * s) {
+                if !icon.isEmpty {
+                    Image(systemName: icon)
+                        .font(.system(size: 14 * s))
+                        .foregroundStyle(.secondary)
+                }
+                TextField("", text: $text.value)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 14 * s))
+                    .multilineTextAlignment(.center)
+                    .frame(width: 90 * s)
+                    .focused($focused)
+                    .onSubmit { apply() }
+                if !suffix.isEmpty {
+                    Text(suffix)
+                        .font(.system(size: 13 * s))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            HStack(spacing: 8 * s) {
+                Button("Cancel") { isPresented = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("OK") { apply() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(12 * s)
+        .onAppear {
+            text.value = Self.format(initialValue)
+            DispatchQueue.main.async { focused = true }
+        }
+    }
+
+    private func apply() {
+        let cleaned = text.value
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ",", with: ".")
+        if let d = Double(cleaned), d > 0 {
+            onApply(d)
+        }
+        isPresented = false
+    }
+
+    private static func format(_ v: Double) -> String {
+        var out = String(format: "%.2f", v)
+        while out.contains("."), out.hasSuffix("0") { out.removeLast() }
+        if out.hasSuffix(".") { out.removeLast() }
+        return out
+    }
+}
+
+/// Takes only right-clicks; left clicks fall through to the view underneath.
+struct RightClickOnly: NSViewRepresentable {
+    var action: () -> Void
+
+    func makeNSView(context: Context) -> RView {
+        let v = RView()
+        v.action = action
+        return v
+    }
+
+    func updateNSView(_ nsView: RView, context: Context) { nsView.action = action }
+
+    final class RView: NSView {
+        var action: () -> Void = {}
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            switch NSApp.currentEvent?.type {
+            case .rightMouseDown, .rightMouseUp: return super.hitTest(point)
+            default: return nil
+            }
+        }
+        override func rightMouseDown(with event: NSEvent) { action() }
+    }
+}

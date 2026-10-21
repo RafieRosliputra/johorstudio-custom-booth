@@ -114,7 +114,8 @@ struct PreviewPane: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 6 * s) {
                     zoomBadge
-                    gammaField
+                    if app.adjustmentsDirty { dirtyBadge }
+                    adjustmentIcons
                 }
                 frameButton
             }
@@ -135,20 +136,59 @@ struct PreviewPane: View {
             .help("Photo size relative to the overlay's photo area — double-click to reset to 100%")
     }
 
-    /// Mouse-wheel zoom sensitivity, right under the zoom badge (icon only).
-    private var gammaField: some View {
-        NumberCommitField(
-            icon: "slider.horizontal.3",
-            suffix: "",
-            value: Binding(
-                get: { app.settings.zoomGamma },
-                set: { app.settings.zoomGamma = $0 }
-            )
-        )
-        .padding(.horizontal, 6 * s)
-        .padding(.vertical, 3 * s)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7 * s))
-        .help("Mouse scroll zoom amount (Enter to apply)")
+    /// "! old value" when the current gamma/rotation differ from what was processed.
+    private var dirtyBadge: some View {
+        let parts: [String] = [
+            abs(app.gamma - app.appliedGamma) > 0.0005 ? "γ\(Self.num(app.appliedGamma))" : nil,
+            abs(app.rotation - app.appliedRotation) > 0.0005 ? "r=\(Int(app.appliedRotation))°" : nil,
+        ].compactMap { $0 }
+        return Text("! " + parts.joined(separator: " · "))
+            .font(.system(size: 10 * s, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7 * s)
+            .padding(.vertical, 3 * s)
+            .background(Capsule().fill(Color.orange))
+            .help("Processed image uses the old values — will re-process")
+    }
+
+    private var adjustmentIcons: some View {
+        HStack(spacing: 5 * s) {
+            iconButton("sun.max", help: "Brightness gamma") { state.showGamma.toggle() }
+                .popover(isPresented: $state.showGamma) {
+                    NumberPopup(icon: "sun.max", suffix: "", initialValue: app.gamma, onApply: { app.setGamma($0) }, isPresented: $state.showGamma)
+                }
+            iconButton("scroll", help: "Mouse scroll zoom amount") { state.showScroll.toggle() }
+                .popover(isPresented: $state.showScroll) {
+                    NumberPopup(icon: "scroll", suffix: "", initialValue: app.settings.zoomGamma, onApply: { app.settings.zoomGamma = $0 }, isPresented: $state.showScroll)
+                }
+            iconButton("plus.magnifyingglass", help: "Zoom % per step") { state.showZoom.toggle() }
+                .popover(isPresented: $state.showZoom) {
+                    NumberPopup(icon: "plus.magnifyingglass", suffix: "%", initialValue: app.settings.zoomStep, onApply: { app.settings.zoomStep = $0 }, isPresented: $state.showZoom)
+                }
+            iconButton("rotate.left", help: "Rotate left 1°") { app.rotate(by: -1) }
+            iconButton("rotate.right", help: "Rotate right 1°") { app.rotate(by: 1) }
+        }
+    }
+
+    private func iconButton(_ name: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name)
+                .font(.system(size: 11 * s, weight: .bold))
+                .foregroundStyle(.primary)
+                .frame(width: 22 * s, height: 22 * s)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6 * s))
+                .overlay(RoundedRectangle(cornerRadius: 6 * s).stroke(Color.secondary.opacity(0.35)))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private static func num(_ v: Double) -> String {
+        var out = String(format: "%.2f", v)
+        while out.contains("."), out.hasSuffix("0") { out.removeLast() }
+        if out.hasSuffix(".") { out.removeLast() }
+        return out
     }
 
     private var frameButton: some View {
@@ -209,8 +249,9 @@ struct PreviewPane: View {
     /// Only when the pointer is over the preview — everywhere else scroll passes
     /// through to whatever is underneath (the filmstrip, the panel, popovers).
     private func handleScroll(_ event: NSEvent) -> Bool {
-        guard !isTyping else { return false }
         guard let point = state.mouse, state.paneSize.width > 1 else { return false }
+        // Scrolling the preview deselects any focused text field so zoom works again.
+        if isTyping { NSApp.keyWindow?.makeFirstResponder(nil) }
         let k = scale(for: state.paneSize)
         guard k > 0 else { return false }
         let dy = event.scrollingDeltaY
@@ -248,6 +289,9 @@ struct PreviewPane: View {
 @MainActor
 private final class PreviewState: ObservableObject {
     @Published var showFrame = false
+    @Published var showGamma = false
+    @Published var showScroll = false
+    @Published var showZoom = false
 
     var mouse: CGPoint?
     var paneSize: CGSize = .zero
@@ -286,31 +330,6 @@ struct PhotoFrameEditor: View {
                 Button("Centre") { app.centrePhoto() }
                     .font(.system(size: 11 * s))
                 Spacer()
-            }
-
-            Divider()
-
-            // Zoom step (%) and mouse-scroll amount — icon only, Enter to commit.
-            HStack(spacing: 12 * s) {
-                NumberCommitField(
-                    icon: "plus.magnifyingglass",
-                    suffix: "%",
-                    value: Binding(
-                        get: { app.settings.zoomStep },
-                        set: { app.settings.zoomStep = $0 }
-                    )
-                )
-                .help("Zoom % per scroll step (Enter to apply)")
-
-                NumberCommitField(
-                    icon: "slider.horizontal.3",
-                    suffix: "",
-                    value: Binding(
-                        get: { app.settings.zoomGamma },
-                        set: { app.settings.zoomGamma = $0 }
-                    )
-                )
-                .help("Mouse scroll zoom amount (Enter to apply)")
             }
         }
         .frame(width: 240 * s)

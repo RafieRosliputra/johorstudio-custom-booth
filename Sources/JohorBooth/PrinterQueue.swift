@@ -15,12 +15,25 @@ enum PrinterQueue {
         return name.isEmpty ? nil : name
     }
 
-    /// The default printer's queue list, in the default browser. macOS has no
-    /// public deep-link to the "Printer Queue…" window, so open the CUPS jobs
-    /// page — the same queue System Settings shows.
+    /// The default printer's queue window: Print Center, falling back to the
+    /// printer proxy in ~/Library/Printers, then System Settings (cara repo).
     static func openQueueWindow() {
-        if let url = URL(string: "http://localhost:631/jobs/") {
-            NSWorkspace.shared.open(url)
+        let ws = NSWorkspace.shared
+        if let app = ws.urlForApplication(withBundleIdentifier: "com.apple.printcenter") {
+            ws.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+            Log.info("Opened Print Center (printer queue)")
+            return
+        }
+        let printers = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Printers")
+        if let proxy = (try? FileManager.default.contentsOfDirectory(at: printers, includingPropertiesForKeys: nil))?
+            .first(where: { $0.pathExtension == "app" }) {
+            ws.open(proxy)
+            Log.info("Opened printer queue \(proxy.deletingPathExtension().lastPathComponent)")
+            return
+        }
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Print-Scan-Settings.extension") {
+            ws.open(url)
+            Log.info("Opened Printers & Scanners")
         }
     }
 

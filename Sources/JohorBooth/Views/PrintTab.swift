@@ -87,12 +87,12 @@ struct PrintTab: View {
 
             if let text = toast.value {
                 Text(text)
-                    .font(.system(size: 16 * s, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 18 * s)
-                    .padding(.vertical, 10 * s)
+                    .font(.system(size: 24 * s, weight: .bold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 24 * s)
+                    .padding(.vertical, 14 * s)
                     .background(Capsule().fill(Color.green))
-                    .shadow(radius: 6 * s)
+                    .shadow(radius: 8 * s)
                     .padding(.top, 14 * s)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -245,14 +245,8 @@ struct PrintTab: View {
     private var purgeButton: some View {
         Button("PURGE PRINT QUEUE") { app.purgePrintQueue() }
             .buttonStyle(PanelButtonStyle(destructive: true))
-            .help("Remove all jobs from the default printer's queue (right-click to view the queue)")
-            .background(
-                GeometryReader { geo in
-                    Color.clear
-                        .onAppear { monitors.purgeRect = geo.frame(in: .global) }
-                        .onChange(of: geo.frame(in: .global)) { _, r in monitors.purgeRect = r }
-                }
-            )
+            .overlay(RightClickOnly { PrinterQueue.openQueueWindow() })
+            .help("Click: purge the queue • right-click: open the printer queue")
     }
 
     // MARK: - Key / right-click monitors
@@ -276,38 +270,19 @@ struct PrintTab: View {
                 }
             }
         }
-        // Right-click on PURGE opens the default printer queue.
-        if monitors.right == nil {
-            monitors.right = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown]) { event in
-                MainActor.assumeIsolated { () -> NSEvent? in
-                    guard let window = event.window, let content = window.contentView else { return event }
-                    let p = event.locationInWindow
-                    let point = CGPoint(x: p.x, y: content.bounds.height - p.y)
-                    if monitors.purgeRect.contains(point) {
-                        PrinterQueue.openQueueWindow()
-                        return nil
-                    }
-                    return event
-                }
-            }
-        }
     }
 
     private func removeMonitors() {
         if let key = monitors.key { NSEvent.removeMonitor(key); monitors.key = nil }
-        if let right = monitors.right { NSEvent.removeMonitor(right); monitors.right = nil }
     }
 }
 
 @MainActor
 private final class PrintTabMonitors: ObservableObject {
     var key: Any?
-    var right: Any?
-    var purgeRect: CGRect = .zero
     var toastTimer: Timer?
 
     deinit {
         if let key { NSEvent.removeMonitor(key) }
-        if let right { NSEvent.removeMonitor(right) }
     }
 }

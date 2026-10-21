@@ -40,6 +40,19 @@ final class AppState: ObservableObject {
     /// and must not hit the disk.
     @Published var photoFrame: PhotoFrame?
 
+    /// Session-only photo adjustments (reset on launch, not in settings.json).
+    /// `gamma` = brightness curve (1.0 = none), `rotation` = degrees clockwise.
+    @Published var gamma: Double = 1.0
+    @Published var rotation: Double = 0.0
+    /// The values the current photo's processed output was last made with —
+    /// used for the "! old value" badge and auto re-process.
+    @Published private(set) var appliedGamma: Double = 1.0
+    @Published private(set) var appliedRotation: Double = 0.0
+
+    var adjustmentsDirty: Bool {
+        abs(gamma - appliedGamma) > 0.0005 || abs(rotation - appliedRotation) > 0.0005
+    }
+
     let library = ImageLibrary()
     let thumbs = ThumbnailStore()
     let preview = PreviewStore()
@@ -53,6 +66,9 @@ final class AppState: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var previewGeneration = 0
     private var started = false
+    private var basePreviewPhoto: CGImage?
+    private var reprocessItem: DispatchWorkItem?
+    private var deselectMonitor: Any?
 
     init() {
         let paths = WorkPaths.detect()
@@ -120,7 +136,28 @@ final class AppState: ObservableObject {
         library.setFolder(cameraFolderURL)
         StartupChecks.run(self)
         upload.startup()
+        installDeselectMonitor()
         Log.info("Startup checks finished")
+    }
+
+    /// Clicking outside a text field clears its focus, so scroll / arrow keys
+    /// (filmstrip + preview) work again instead of being eaten by the field.
+    private func installDeselectMonitor() {
+        guard deselectMonitor == nil else { return }
+        deselectMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
+            MainActor.assumeIsolated { () -> NSEvent? in
+                guard let window = event.window, window.firstResponder is NSText else { return event }
+                let point = window.contentView?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
+                if let hit = window.contentView?.hitTest(point), !Self.isTextControl(hit) {
+                    window.makeFirstResponder(nil)
+                }
+                return event
+            }
+        }
+    }
+
+    private static func isTextControl(_ view: NSView) -> Bool {
+        view is NSTextField || view is NSTextView
     }
 
     // MARK: - Folders
@@ -303,14 +340,75 @@ final class AppState: ObservableObject {
             let image = await preview.previewImage(for: url)
             guard generation == previewGeneration else { return }
             if let image {
-                previewPhoto = image
-                previewMessage = nil
+                basePreviewPhoto = image
+                renderPreviewPhoto()
             } else {
+                basePreviewPhoto = nil
                 previewPhoto = nil
                 previewMessage = "Cannot load \(url.lastPathComponent)"
                 Log.error("Preview failed for \(url.lastPathComponent)")
             }
         }
+    }
+
+    /// Re-draws `previewPhoto` from the base photo with the current gamma/rotation.
+    private func renderPreviewPhoto() {
+        guard let base = basePreviewPhoto else {
+            previewPhoto = nil
+            return
+        }
+        if abs(gamma - 1.0) < 0.0005, abs(rotation) < 0.0005 {
+            previewPhoto = base
+        } else {
+            previewPhoto = ImageAdjust.render(base, gamma: gamma, rotation: rotation) ?? base
+        }
+        previewMessage = nil
+    }
+
+    // MARK: - Adjustments (gamma / rotation, session-only)
+
+    func setGamma(_ value: Double) {
+        let v = min(3.0, max(0.1, value))
+        guard abs(v - gamma) > 0.0005 else { return }
+        gamma = v
+        Log.info("gamma → \(Self.number(v))")
+        adjustmentsChanged()
+    }
+
+    func rotate(by degrees: Double) {
+        var v = (rotation + degrees).truncatingRemainder(dividingBy: 360)
+        if v > 180 { v -= 360 }
+        if v < -180 { v += 360 }
+        guard abs(v - rotation) > 0.0005 else { return }
+        rotation = v
+        Log.info("rotation → \(Int(v))°")
+        adjustmentsChanged()
+    }
+
+    /// Called by PrintService when a (re)process completes with these values.
+    func markAdjustmentsApplied(gamma g: Double, rotation r: Double) {
+        appliedGamma = g
+        appliedRotation = r
+    }
+
+    private func adjustmentsChanged() {
+        renderPreviewPhoto()
+        reprocessItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.reprocessCurrent() }
+        reprocessItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: item)
+    }
+
+    private func reprocessCurrent() {
+        guard adjustmentsDirty, let url = library.current else { return }
+        printer.reprepareUpload(for: url)
+    }
+
+    private static func number(_ v: Double) -> String {
+        var out = String(format: "%.2f", v)
+        while out.contains("."), out.hasSuffix("0") { out.removeLast() }
+        if out.hasSuffix(".") { out.removeLast() }
+        return out
     }
 
     // MARK: - Settings
